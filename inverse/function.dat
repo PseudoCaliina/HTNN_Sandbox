@@ -1,6 +1,0 @@
- 3   ! 2: 2-D. 3: 3-D.
- 0   ! 1: unconfined. 0: confined.
- 0  ! 0: nctimes parallel. 1: solver parallel.
- 1 2 ! 0: Pert. 1: Adj.
- 1 0 0 0 0 0 0 0 ! rp,rq1,rq2,rq3,rq,rw,rc,rcq
- 2 ! 1: Reduced order by SVD. 2: Full matrix. 3: No update.

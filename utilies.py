@@ -1,14 +1,17 @@
-## Pytorch training classes
+## tools for HT-NN training & CRF generation
 import os
 import h5py
 import torch
 import numpy as np
+import pandas as pd
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from pathlib import Path
 from torch.utils.data import Dataset
 
-
-# Dataset
+## Pytorch training classes
 class NNDataset(Dataset):
    
    def __init__(self, work_dir, name):
@@ -163,4 +166,76 @@ class Activation_block(nn.Module):
 
     def forward(self, x):
         return F.leaky_relu(x, negative_slope=self.negative_slope, inplace=False)
+
+
+##  CRF generation
+def parse_estimation(file_name, dim):
+    """
+    Used for parsing SLE inversion result, prepared for random field generation step
+    Args:
+        file_name: file name(direct path) for O-kestimate.dat or O-sestimate.dat 
+        dim: 2d or 3d
+    Returns:
+        df_result_ln_mean: SLE estimated mean (in log)
+        df_result_ln_var: SLE estimated variance (in log)
+    """
+    
+    file_name = Path(file_name)  
+    base_dir = file_name.parent
+    
+    with open(file_name, 'r') as file:
+        lines = file.readlines()
+
+    df = pd.read_csv( base_dir /'grid.dat', header=None,sep='\s+', engine='python')    
+    ele_num = df.iloc[0,0]
+    node_num = df.iloc[1,0]
+
+    idx_list = []
+    col_name = []
+    iteration = 1
+    for idx, line in enumerate(lines):
+        if 'zone' in line:
+            col_name.append('iter_' + str(iteration))
+            idx_list.append(idx)
+            iteration += 1    
+
+    column_data = []  
+    column_ln_mean = []
+    column_ln_var = []
+
+    for i in range(len(idx_list)):
+        str_idx = idx_list[i] + 1
+
+        # estimation mean
+        if i == 0:
+            var_total_length = (node_num*dim + ele_num*2)
+            mean_total_length = (node_num*dim + ele_num*3) 
+        else:
+            var_total_length = ele_num*2
+            mean_total_length = ele_num*3
+
+        mean_section = lines[str_idx: str_idx + mean_total_length]
+        var_section = lines[str_idx: str_idx + var_total_length]
+
+        mean_data = mean_section[-ele_num:]
+        ln_var_data = var_section[-ele_num:]
+
+        mean_data = [float(item.strip()) for item in mean_data]
+        ln_var_data = [float(item.strip()) for item in ln_var_data]
+        column_ln_mean.append(mean_data)
+        column_ln_var.append(ln_var_data)
+
+    column_ln_mean = np.array(np.log(column_ln_mean)).T 
+    column_ln_var = np.array(column_ln_var).T 
+    column_data = np.array(column_data).T 
+    df_result_mean = pd.DataFrame(columns=col_name, data =column_ln_mean)
+    df_result_var = pd.DataFrame(columns=col_name, data =column_ln_var)
+
+    df_gird = pd.read_csv( base_dir /'grid-material.dat', sep='\s+', names = ['idx', 'x', 'y', 'z']) # ['idx', 'x', 'y', 'z]
+    df_gird = df_gird.drop(columns='idx')
+    df_result_ln_mean = pd.concat([df_gird,df_result_mean],axis=1)
+    df_result_ln_var = pd.concat([df_gird,df_result_var],axis=1)
+
+
+    return df_result_ln_mean, df_result_ln_var
 

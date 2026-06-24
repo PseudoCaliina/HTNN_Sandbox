@@ -4,6 +4,7 @@ import h5py
 import torch
 import numpy as np
 import pandas as pd
+import gstools as gs
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -238,4 +239,120 @@ def parse_estimation(file_name, dim):
 
 
     return df_result_ln_mean, df_result_ln_var
+
+def interpolate_3d(df, value_col, grid_size=50, method="linear"):
+    """
+    Interpolate scattered 3D data (x, y, z, value) onto a regular 3D grid.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain columns ['x', 'y', 'z', value_col]
+    value_col : str
+        Column to interpolate (e.g. 'value')
+    grid_size : int or tuple
+        Number of grid points in each dimension (int or (nx, ny, nz))
+    method : str
+        Interpolation method: 'linear', 'nearest', 'cubic'
+
+    Returns
+    -------
+    X, Y, Z : 3D numpy arrays (grid coordinates)
+    V       : 3D numpy array (interpolated values)
+    """
+    # Points and values
+    points = df[['x', 'y', 'z']].values
+    values = df[value_col].values
+
+    # Grid definition
+    if isinstance(grid_size, int):
+        nx = ny = nz = grid_size
+    else:
+        nx, ny, nz = grid_size
+
+    xi = np.linspace(df['x'].min(), df['x'].max(), nx)
+    yi = np.linspace(df['y'].min(), df['y'].max(), ny)
+    zi = np.linspace(df['z'].min(), df['z'].max(), nz)
+    X, Y, Z = np.meshgrid(xi, yi, zi, indexing="ij")
+
+    # Interpolate
+    from scipy.interpolate import griddata
+    V = griddata(points, values, (X, Y, Z), method=method)
+
+    return X, Y, Z, V
+
+def variogram_test(coordinate, value, bins, direction, max_dis):
+    """ 
+    Compute and fit variogram models for given spatial data.
+    Args:
+        coordinate: Tuple of numpy arrays (x_cor, y_cor) or (x_cor, y_cor, z_cor)
+        value: Data values at given coordinates
+        bins: Number of bins for variogram estimation
+        direction: 'X', 'Y', or 'Z' (for 3D only)
+        max_dis: Maximum distance for model fitting
+    """
+    # switch column and row direction (X<-->Y)
+    dim_flag = len(coordinate)
+    if dim_flag == 2:
+        coordinate = (coordinate[1], coordinate[0])  # (y, x)
+        angle = 0
+    elif dim_flag == 3:
+        coordinate = (coordinate[1], coordinate[0], coordinate[2])  # (y, x, z)
+        angle = [0,0,0]
+    else:
+        raise ValueError("Only supports 2D or 3D spatial data.")
+    
+    # direction index
+    direction_map = {'X': 1, 'Y': 0, 'Z': 2}
+    if direction not in direction_map:
+        raise ValueError("Direction must be 'X', 'Y', or 'Z' (for 3D only).")
+    
+    dir_index = direction_map[direction]
+    if dim_flag == 2 and direction == 'Z':
+        raise ValueError("Z direction is not valid for 2D data.")
+    
+    # experimental vaiorgram 
+    bin_center, dir_vario, counts = gs.vario_estimate(
+        *((coordinate, value, bins)),
+        sampling_size=500,
+        sampling_seed=1001,
+        direction=gs.rotated_main_axes(dim=dim_flag, angles = angle),
+        bandwidth=30,
+        return_counts=True,
+    )  
+    
+    # theorical model
+    models = {
+        "Gaussian": gs.Gaussian,
+        "Exponential": gs.Exponential,
+        "Stable": gs.Stable,
+        "Circular": gs.Circular,
+        "Spherical": gs.Spherical,
+    }
+    scores = {}  
+    
+    # plot fitting result
+    plt.figure(figsize=(8, 4))
+    plt.scatter(bin_center, dir_vario[dir_index], color="k", label="Data")
+    ax = plt.gca()
+    print(f'-------------- Variogram Fitting for {direction} Direction --------------')
+    for model_name, model_class in models.items():
+        fit_model = model_class(dim=dim_flag)
+        para, pcov, r2 = fit_model.fit_variogram(bin_center, dir_vario[dir_index], return_r2=True)
+        fit_model.plot(x_max=max_dis, ax=ax)
+        scores[model_name] = r2
+        print(f'Model: {model_name};  Pseudo r2 = {r2:.3f}')
+        print(fit_model)
+    
+    # ax.set_title(f'{direction} Direction')
+    ax.set_title(f'{direction} Direction', fontsize=18)
+    ax.set_xlabel("Lag Distance", fontsize=14)
+    ax.set_ylabel("Semivariance", fontsize=14)
+
+    ax.tick_params(axis='x', labelsize=12)
+    ax.tick_params(axis='y', labelsize=12)
+
+    # legend with fontsize
+    ax.legend(fontsize=12)
+    plt.show()
 

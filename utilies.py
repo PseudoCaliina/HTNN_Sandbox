@@ -177,8 +177,8 @@ def parse_estimation(file_name, dim):
         file_name: file name(direct path) for O-kestimate.dat or O-sestimate.dat 
         dim: 2d or 3d
     Returns:
-        df_result_ln_mean: SLE estimated mean (in log)
-        df_result_ln_var: SLE estimated variance (in log)
+        df_K: SLE estimated K mean (mm/s)
+        df_ln_var: SLE estimated variance (Var. ln(K))
     """
     
     file_name = Path(file_name)  
@@ -201,7 +201,7 @@ def parse_estimation(file_name, dim):
             iteration += 1    
 
     column_data = []  
-    column_ln_mean = []
+    column_mean = []
     column_ln_var = []
 
     for i in range(len(idx_list)):
@@ -223,22 +223,23 @@ def parse_estimation(file_name, dim):
 
         mean_data = [float(item.strip()) for item in mean_data]
         ln_var_data = [float(item.strip()) for item in ln_var_data]
-        column_ln_mean.append(mean_data)
+        column_mean.append(mean_data)
         column_ln_var.append(ln_var_data)
 
-    column_ln_mean = np.array(np.log(column_ln_mean)).T 
+    # sandbox no need to change to log scale 
+    column_mean = np.array(column_mean).T
     column_ln_var = np.array(column_ln_var).T 
     column_data = np.array(column_data).T 
-    df_result_mean = pd.DataFrame(columns=col_name, data =column_ln_mean)
+    df_result_mean = pd.DataFrame(columns=col_name, data =column_mean)
     df_result_var = pd.DataFrame(columns=col_name, data =column_ln_var)
 
     df_gird = pd.read_csv( base_dir /'grid-material.dat', sep='\s+', names = ['idx', 'x', 'y', 'z']) # ['idx', 'x', 'y', 'z]
     df_gird = df_gird.drop(columns='idx')
-    df_result_ln_mean = pd.concat([df_gird,df_result_mean],axis=1)
-    df_result_ln_var = pd.concat([df_gird,df_result_var],axis=1)
+    df_K = pd.concat([df_gird,df_result_mean],axis=1)
+    df_ln_var = pd.concat([df_gird,df_result_var],axis=1)
 
 
-    return df_result_ln_mean, df_result_ln_var
+    return df_K, df_ln_var
 
 def interpolate_3d(df, value_col, grid_size=50, method="linear"):
     """

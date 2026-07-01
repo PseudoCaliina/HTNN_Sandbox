@@ -10,21 +10,28 @@ Author: PseudoCaliina
 Date: 2026-07-01
 """
 import os
+import math
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 # ===== Functions =====
-def element_cor_2d(start_coord, element_spacing):  # 建立元素中心座標
+def element_cor_2d(start_coord, element_spacing):  
     """ 
-    To generate 2d df in grid_mateiral
-    grid_num: total grid number, otain by grid.dat
+    Generate coordinate for each element
+    
+    for 1-D example:
+    
+        │--10--│----20----│------30------│   (element spacing) 
+        0      10        30              60  (node coordinate)
+        ↓    
+        0--5--10----20---30------45------60  (element coordinate)
+    
+    To generate 2d coordinate alike in grid_mateiral.dat
     start_coord: [x_0, y_0]
     element_spacing: [dx, dy] dx = [dx1, dx2, ..., dxn], n = x_num
-    init_h: inital head for simulation
     """
-    dx = element_spacing[0]
-    dy = element_spacing[1]
+    dx, dy= element_spacing
 
     x_e = len(dx)
     y_e = len(dy)
@@ -42,40 +49,36 @@ def element_cor_2d(start_coord, element_spacing):  # 建立元素中心座標
 
     df_node = pd.DataFrame(np.column_stack( (col_ele_idx,col_x_gird, col_y_gird)))
     df_node.columns = ['column_idx','x', 'y']
+    
     return df_node
 
 def element_cor_3d(start_coord, element_spacing):  
     """ 
-    產生 3D 元素中心座標
+    Generate each 3D element center coordinate
     Args:
-        start_coord: [x_0, y_0, z_0] -> 起始座標
-        element_spacing: [dx, dy, dz] -> 每個方向的元素間距
+        start_coord: [x_0, y_0, z_0]
+        element_spacing: [dx, dy, dz]
     Return:
-        df_node: DataFrame，包含元素索引及 x, y, z 座標
+        df_node: DataFrame contain x,y,z coordinate
     """
     dx, dy, dz = element_spacing
 
-    # 計算各方向的元素數量
     x_e, y_e, z_e = len(dx), len(dy), len(dz)
-    ele_num = x_e * y_e * z_e  # 總元素數量
+    ele_num = x_e * y_e * z_e 
 
-    # 計算 X, Y, Z 節點座標
     x_cor = np.insert(start_coord[0] + np.cumsum(dx), 0, start_coord[0])
     y_cor = np.insert(start_coord[1] + np.cumsum(dy), 0, start_coord[1])
     z_cor = np.insert(start_coord[2] + np.cumsum(dz), 0, start_coord[2])
 
-    # 計算 X, Y, Z 元素中心
     element_cor_x = (x_cor[:-1] + x_cor[1:]) / 2
     element_cor_y = (y_cor[:-1] + y_cor[1:]) / 2
     element_cor_z = (z_cor[:-1] + z_cor[1:]) / 2
 
-    # 展開為 3D 座標
     col_ele_idx = np.arange(1, ele_num + 1).astype(int)
-    col_x_grid = np.tile(np.tile(element_cor_x, y_e), z_e)  # X 軸重複填充
-    col_y_grid = np.tile(np.repeat(element_cor_y, x_e), z_e)  # Y 軸重複填充
-    col_z_grid = np.repeat(element_cor_z, x_e * y_e)  # Z 軸重複填充
-
-    # 建立 DataFrame
+    col_x_grid = np.tile(np.tile(element_cor_x, y_e), z_e)  
+    col_y_grid = np.tile(np.repeat(element_cor_y, x_e), z_e)  
+    col_z_grid = np.repeat(element_cor_z, x_e * y_e) 
+    
     df_node = pd.DataFrame(np.column_stack((col_ele_idx, col_x_grid, col_y_grid, col_z_grid)))
     df_node.columns = ['column_idx', 'x', 'y', 'z']
     return df_node
@@ -251,23 +254,30 @@ def read_FwdObs(file_path, simulation_state, init_h):
 class sle_io:
     """
     --- Vsaft2 Solver Forward Simulation Input Files ---
-    grid.dat
-    node.dat
-    element.dat
+    (1)
+    grid.dat     OK
+    element.dat  OK
+    (2)
+    node.dat     OK
+    material.dat  OK
+    (3)
+    problem.dat    OK
+    function.dat   OK
+    simulation.dat OK
+    (4)
+    sources.dat   OK
+    time.dat      OK         (nc if steady?)
+    (5)
+    obwell.dat    OK
+    (6)
+    boundary.dat  OK
+    bc.dat        OK
     
-    problem.dat
-    simulation.dat
-    sources.dat
-    time.dat               (nc if steady?)
-    material.dat
-    obwell.dat
-    boundary.dat
-    bc.dat
     time_vary_h_bc.dat     (nc)
     time_vary_f_bc.dat     (nc)
     validation_control.dat (nc)
     
-    --- sle_io basic fucntions---
+    --- sle_io basic functions---
     Create all .dat files in working folder
     Execute "SLE.exe"
     Visualize io data
@@ -299,9 +309,9 @@ class sle_io:
         self.project_name = project_name
         print(f'Project: {self.project_name}')
 
-    def Set_parameters(self, simulation_control):
+    def set_parameters(self, simulation_control):
         """
-        Set simualtion parameters
+        Set simulation parameters
         
         Parameters
         ----------
@@ -353,9 +363,9 @@ class sle_io:
         
         return self
 
-    def Add_geometry(self, start_coord, element_num, element_spacing):
+    def add_geometry(self, start_coord, element_num, element_spacing):
         """
-        Generate grid, node and element .dat files for groundwater simulation.
+        Generate grid and element .dat files for groundwater simulation.
 
         This function constructs computational grid geometry based on
         starting coordinates, element configuration, and grid spacing.
@@ -384,33 +394,46 @@ class sle_io:
         Returns
         -------
         None
-            Writes .dat files to disk.
+            Writes .dat files to work folder.
         """       
-
-        # 
-        if self.dimension == 2 and len(element_num) != 2:
+        # Check input length
+        if len(start_coord) != self.dimension:
             raise ValueError(
-                "2D simulation requires element_num = [x_num, y_num]."
+                f"start_coord should contain {self.dimension} values to match the dimension."
             )
 
-        if self.dimension == 3 and len(element_num) != 3:
+        if len(element_num) != self.dimension:
             raise ValueError(
-                "3D simulation requires element_num = [x_num, y_num, z_num]."
+                f"element_num should contain {self.dimension} values to match the dimension."
             )
 
-        x_0, y_0, *z_0 = start_coord
-        x_e, y_e, *z_e = element_num
-        dx,  dy,  *dz  = element_spacing
-        
+        if len(element_spacing) != self.dimension:
+            raise ValueError(
+                f"element_spacing should contain {self.dimension} values to match the dimension."
+            )
+
+        # Check element number match element spacing number in each direction
+        for num, spacing in zip(element_num, element_spacing):
+            
+            if num != len(spacing):
+                raise ValueError(
+                    "The length of each spacing array must match the "
+                    "corresponding number of elements."
+                )
+
+
+        # define total element and node number
+        total_element_num = math.prod(element_num)
+        total_node_num = math.prod([i + 1 for i in element_num])
+
+                    
         if self.dimension == 2:
-            total_element_num = x_e*y_e
-            total_node_num = (x_e + 1)*(y_e + 1)
+            x_e, y_e = element_num
             df_element = element_2d_df(x_e, y_e)            
             df_coordinate = element_cor_2d(start_coord, element_spacing)
             
         if self.dimension == 3:
-            total_element_num = x_e*y_e*z_e
-            total_node_num = (x_e + 1)*(y_e + 1)*(z_e + 1)        
+            x_e, y_e, z_e = element_num
             df_element = element_3d_df(x_e, y_e, z_e)
             df_coordinate = element_cor_3d(start_coord, element_spacing)
             
@@ -422,28 +445,19 @@ class sle_io:
         
         return self
     
-    def Add_element():
+    def add_initial(self, init_para):
         """
-        Args:
+        Generate node, material file for groundwater simulation.
 
-        Return:
-
-        """    
+        Parameters
+        ----------        
         
-        return
+        """
+        pass
     
-    def Add_node():
+    def add_boundary():
         """
-        Args:
-
-        Return:
-
-        """    
-        
-        return    
-    
-    def Add_boundary():
-        """
+        Generate boundary, bc file for groundwater simulation.        
         Args:
 
         Return:
@@ -452,8 +466,9 @@ class sle_io:
         
         return
 
-    def Add_observation():
+    def add_observation():
         """
+        Generate obwell file for groundwater simulation.     
         Args:
 
         Return:
@@ -462,8 +477,9 @@ class sle_io:
         
         return
 
-    def Add_source():
+    def add_source():
         """
+        Generate source, time file for groundwater simulation.     
         Args:
 
         Return:
@@ -472,19 +488,9 @@ class sle_io:
         
         return
 
-    def Add_function():
+    def add_simulation():
         """
-        Args:
-
-        Return:
-
-        """    
-        
-        return
-
-    def Add_simulation():
-        """
-        Args:
+        Generate function, simulation, problem file for simulation
 
         Return:
 
@@ -494,7 +500,7 @@ class sle_io:
 
     def WriteToFile():
         """
-        Args:
+        Write all .dat files to working folder
 
         Return:
 

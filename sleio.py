@@ -83,10 +83,10 @@ def element_cor_3d(start_coord, element_spacing):
     df_node.columns = ['column_idx', 'x', 'y', 'z']
     return df_node
 
-def node_2d_df(grid_num, start_coord, element_spacing, init_h):
+def node_2d_df(node_num, start_coord, element_spacing, init_h):
     """ 
     To generate 2d df in function node
-    grid_num: total grid number, otain by grid.dat
+    node_num: total node number
     start_coord: [x_0, y_0]
     element_spacing: [dx, dy] dx = [dx1, dx2, ..., dxn], n = x_num
     init_h: inital head for simulation
@@ -94,40 +94,37 @@ def node_2d_df(grid_num, start_coord, element_spacing, init_h):
     if len(start_coord) != 2:
         raise ValueError("start_coord must contain 2 element for 2D")
     
-    dx = element_spacing[0]
-    dy = element_spacing[1]
-
+    dx, dy = element_spacing
+    
     x_e = len(dx)
     y_e = len(dy)
     
     x_cor = np.concatenate([[start_coord[0]], start_coord[0] + np.cumsum(dx)])
     y_cor =  np.concatenate([[start_coord[1]], start_coord[1] + np.cumsum(dy)])
 
-    col_grid_idx = np.arange(1, grid_num + 1).astype(int)
-    col_x_grid = np.tile(x_cor, (y_e + 1))  # repeat array x_cor (y_e + 1) times
-    col_y_grid = np.repeat(y_cor, (x_e + 1))         # repeat each element in  y_cor for (x_e + 1) times
+    col_node_idx = np.arange(1, node_num + 1).astype(int)
+    col_x_node = np.tile(x_cor, (y_e + 1))  # repeat array x_cor (y_e + 1) times
+    col_y_node = np.repeat(y_cor, (x_e + 1))         # repeat each element in  y_cor for (x_e + 1) times
 
-    col_init_h = np.ones(grid_num)*init_h  # inital head 
-    col_init_c = np.zeros(grid_num)        # concentration  
-    col_init_c_flux = np.zeros(grid_num)    # concentration flux
+    col_init_h = np.ones(node_num)*init_h  # inital head 
+    col_init_c = np.zeros(node_num)        # concentration  
+    col_init_c_flux = np.zeros(node_num)    # concentration flux
     
     df_node = pd.DataFrame(np.column_stack(
-        (col_grid_idx, col_x_grid, col_y_grid, col_init_h, col_init_c, col_init_c_flux)))
+        (col_node_idx, col_x_node, col_y_node, col_init_h, col_init_c, col_init_c_flux)))
 
     return df_node 
 
-def node_3d_df( grid_num, start_coord, element_spacing, init_h):
+def node_3d_df( node_num, start_coord, element_spacing, init_h):
     """ 
     To generate 3d df in function node
-    grid_num: total grid number, otain by grid.dat
+    node_num: total node number
     start_coord: [x_0, y_0, z_0]
     element_spacing: [dx, dy, dx] dx = [dx1, dx2, ..., dxn], n = x_num
     init_h: inital head for simulation
     """
-    dx = element_spacing[0]
-    dy = element_spacing[1]
-    dz = element_spacing[2]
 
+    dx, dy, dz = element_spacing
     x_e = len(dx)
     y_e = len(dy)
     z_e = len(dz)
@@ -136,17 +133,17 @@ def node_3d_df( grid_num, start_coord, element_spacing, init_h):
     y_cor = np.concatenate([[start_coord[1]], start_coord[1] + np.cumsum(dy)])
     z_cor = np.concatenate([[start_coord[2]], start_coord[2] + np.cumsum(dz)])
 
-    col_grid_idx = np.arange(1, grid_num + 1)
-    col_x_grid = np.tile(x_cor, (y_e + 1)*(z_e + 1))
-    col_y_grid = np.tile( np.repeat(y_cor, (x_e + 1)) , (z_e + 1))
-    col_z_grid = np.repeat(z_cor,  (x_e + 1)*(y_e + 1)) 
+    col_node_idx = np.arange(1, node_num + 1)
+    col_x_node = np.tile(x_cor, (y_e + 1)*(z_e + 1))
+    col_y_node = np.tile( np.repeat(y_cor, (x_e + 1)) , (z_e + 1))
+    col_z_node = np.repeat(z_cor,  (x_e + 1)*(y_e + 1)) 
 
-    col_init_h = np.ones(grid_num)*init_h  # inital head 
-    col_init_c = np.zeros(grid_num)        # concentration  
-    col_init_c_flux = np.zeros(grid_num)      # concentration flux   
+    col_init_h = np.ones(node_num)*init_h  # inital head 
+    col_init_c = np.zeros(node_num)        # concentration  
+    col_init_c_flux = np.zeros(node_num)      # concentration flux   
 
     df_node = pd.DataFrame(np.column_stack(
-        (col_grid_idx, col_x_grid, col_y_grid, col_z_grid, col_init_h, col_init_c, col_init_c_flux)))
+        (col_node_idx, col_x_node, col_y_node, col_z_node, col_init_h, col_init_c, col_init_c_flux)))
 
     return df_node
 
@@ -219,6 +216,80 @@ def element_3d_df(x_e, y_e, z_e):
                                      col_zone_idx)))
     return df
 
+def create_material_format_2d(K, Ss, n, ele_num, Kh_paras, Se_paras, Trans_paras):
+    """ 
+    Generate 2D material.dat format
+    
+    Arguments:
+    -------------
+    K: Saturated hydraulic conductivity
+    Ss: Specific storage
+    n: porosity
+    ele_num: int (total element in this case) 
+    
+    *Kh_paras: default parameters
+    *Se_paras: default parameters
+    *Trans_paras: default parameters
+    
+    """
+    
+    Sat_paras = [K, K, n, Ss]  # Kx, Ky, n, Ss
+    df_ele = pd.DataFrame(np.tile([ele_num, " "], (1, 1)))
+    df_Sat = pd.DataFrame(np.tile(Sat_paras, (ele_num, 1)) )
+    df_Kh  = pd.DataFrame(np.tile(Kh_paras, (ele_num, 1)) )
+    df_Se  = pd.DataFrame(np.tile(Se_paras, (ele_num, 1)) )
+    df_Tr  = pd.DataFrame(np.tile(Trans_paras, (ele_num, 1)) )
+    df_floor = pd.DataFrame(np.tile([0, " "], (5, 1)))
+    
+    
+
+    df = pd.concat([df_ele,
+                    df_Sat,
+                    df_Kh,
+                    df_Se,
+                    df_Tr,
+                    df_floor,
+                    ], ignore_index=True)
+    
+    return df
+    
+def create_material_format_3d(K, Ss, n, ele_num, Kh_paras, Se_paras, Trans_paras):
+    """ 
+    Generate 3D material.dat format
+    
+    Arguments:
+    -------------
+    K: Saturated hydraulic conductivity
+    Ss: Specific storage
+    n: porosity
+    ele_num: int (total element in this case) 
+    
+    *Kh_paras: default parameters (add z direction)
+    *Se_paras: default parameters
+    *Trans_paras: default parameters
+    
+    """
+    
+    Sat_paras = [K, K, K, n, Ss]  # Kx, Ky, n, Ss
+    df_ele = pd.DataFrame(np.tile([ele_num, " "], (1, 1)))
+    df_Sat = pd.DataFrame(np.tile(Sat_paras, (ele_num, 1)) )
+    df_Kh  = pd.DataFrame(np.tile(Kh_paras, (ele_num, 1)) )
+    df_Se  = pd.DataFrame(np.tile(Se_paras, (ele_num, 1)) )
+    df_Tr  = pd.DataFrame(np.tile(Trans_paras, (ele_num, 1)) )
+    df_floor = pd.DataFrame(np.tile([0, " "], (5, 1)))
+    
+    
+
+    df = pd.concat([df_ele,
+                    df_Sat,
+                    df_Kh,
+                    df_Se,
+                    df_Tr,
+                    df_floor,
+                    ], ignore_index=True)
+    
+    return df
+    
 def read_FwdObs(file_path, simulation_state, init_h):
     header = ['loca', 'well', 'time', 'wlevel','flux_x','flux_y','w_content','solute_concentation','solute_flux', '?']
     df = pd.read_csv(file_path, header=None,sep=r'\s+', names = header, engine='python')
@@ -304,6 +375,24 @@ class sle_io:
         "confined": 0,
         "unconfined": 1,
     }
+    
+    # DEFAULT PARAMETERS
+    KH_PARAS_2D = [0.001, 0.1, 0.001, 0.1, 2]
+    #              ax     bx    ay     by   model
+
+    KH_PARAS_3D = [0.001, 0.1, 0.001, 0.1, 0.001, 0.1, 2]
+    #              ax     bx    ay     by    az     bz   model
+
+    # Soil-water retention parameters
+    SE_PARAS = [1, 0.1, 0.4, 0.01]
+    #            a_m  b_m theta_s theta_r
+
+    # Solute transport parameters
+    TRANS_PARAS = [20, 20, 2, 0.0014]
+    #               D_l D_m D_t r_b
+    
+    
+    
     
     def __init__(self, project_name):
         self.project_name = project_name
@@ -423,10 +512,10 @@ class sle_io:
 
 
         # define total element and node number
+        
         total_element_num = math.prod(element_num)
         total_node_num = math.prod([i + 1 for i in element_num])
-
-                    
+                
         if self.dimension == 2:
             x_e, y_e = element_num
             df_element = element_2d_df(x_e, y_e)            
@@ -442,18 +531,56 @@ class sle_io:
         self.df_coordinate = df_coordinate
         self.df_grid = pd.DataFrame((total_element_num, total_node_num))
         
+        self.total_element_num = total_element_num
+        self.total_node_num = total_node_num
+        self.start_coord = start_coord
+        self.element_num = element_num
+        self.element_spacing = element_spacing
         
         return self
     
-    def add_initial(self, init_para):
+    def add_initial(self, init_paras):
         """
         Generate node, material file for groundwater simulation.
 
         Parameters
-        ----------        
+        ----------
+        init_paras : tuple [init_h, init_K, init_Ss, porosity]
+            init_h: initial Head
+            init_K: initial saturated hydraulic Conductivity
+            init_Ss: initial Specific Storage
+            porosity: inital porosity ()
+
+        Returns
+        -------
+        """       
+        # check init_para contains enough data
+        if len(init_paras) != 4:
+            raise ValueError("Error: missing initial parameters, check init_para tuple")        
+
         
-        """
-        pass
+        init_h, init_K, init_Ss, porosity = init_paras
+        self.init_paras = init_paras 
+        
+        # node and material
+        if self.dimension == 2:
+                self.df_node = node_2d_df(self.total_node_num, self.start_coord, self.element_spacing, init_h)    
+                self.df_material = create_material_format_2d(
+                        init_K, init_Ss, porosity, self.total_element_num,
+                        self.KH_PARAS_2D, self.SE_PARAS, self.TRANS_PARAS
+                    )
+
+        if self.dimension == 3:
+                self.df_node = node_3d_df(self.total_node_num, self.start_coord, self.element_spacing, init_h) 
+                self.df_material = create_material_format_3d(
+                        init_K, init_Ss, porosity, self.total_element_num,
+                        self.KH_PARAS_3D, self.SE_PARAS, self.TRANS_PARAS
+                    )
+                
+
+    
+        return self
+
     
     def add_boundary():
         """

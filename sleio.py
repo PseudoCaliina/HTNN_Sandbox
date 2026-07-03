@@ -83,7 +83,7 @@ def element_cor_3d(start_coord, element_spacing):
     df_node.columns = ['column_idx', 'x', 'y', 'z']
     return df_node
 
-def node_2d_df(node_num, start_coord, element_spacing, init_h):
+def node_2d_df(node_num, start_coord, element_spacing, init_h, init_flux):
     """ 
     To generate 2d df in function node
     node_num: total node number
@@ -108,14 +108,14 @@ def node_2d_df(node_num, start_coord, element_spacing, init_h):
 
     col_init_h = np.ones(node_num)*init_h  # inital head 
     col_init_c = np.zeros(node_num)        # concentration  
-    col_init_c_flux = np.zeros(node_num)    # concentration flux
+    col_init_c_flux = np.zeros(node_num)*init_flux    # concentration flux
     
     df_node = pd.DataFrame(np.column_stack(
         (col_node_idx, col_x_node, col_y_node, col_init_h, col_init_c, col_init_c_flux)))
 
     return df_node 
 
-def node_3d_df( node_num, start_coord, element_spacing, init_h):
+def node_3d_df( node_num, start_coord, element_spacing, init_h, init_flux):
     """ 
     To generate 3d df in function node
     node_num: total node number
@@ -140,7 +140,7 @@ def node_3d_df( node_num, start_coord, element_spacing, init_h):
 
     col_init_h = np.ones(node_num)*init_h  # inital head 
     col_init_c = np.zeros(node_num)        # concentration  
-    col_init_c_flux = np.zeros(node_num)      # concentration flux   
+    col_init_c_flux = np.zeros(node_num)*init_flux      # concentration flux   
 
     df_node = pd.DataFrame(np.column_stack(
         (col_node_idx, col_x_node, col_y_node, col_z_node, col_init_h, col_init_c, col_init_c_flux)))
@@ -289,7 +289,7 @@ def create_material_format_3d(K, Ss, n, ele_num, Kh_paras, Se_paras, Trans_paras
                     ], ignore_index=True)
     
     return df
-    
+   
 def read_FwdObs(file_path, simulation_state, init_h):
     header = ['loca', 'well', 'time', 'wlevel','flux_x','flux_y','w_content','solute_concentation','solute_flux', '?']
     df = pd.read_csv(file_path, header=None,sep=r'\s+', names = header, engine='python')
@@ -320,6 +320,7 @@ def read_FwdObs(file_path, simulation_state, init_h):
         df_head = df_head.subtract(init_h, axis = 1 )            
                 
     return df_head
+
 
 # ===== Class =====
 class sle_io:
@@ -377,21 +378,29 @@ class sle_io:
     }
     
     # DEFAULT PARAMETERS
-    KH_PARAS_2D = [0.001, 0.1, 0.001, 0.1, 2]
+    KH_PARAS_2D = (0.001, 0.1, 0.001, 0.1, 2)
     #              ax     bx    ay     by   model
 
-    KH_PARAS_3D = [0.001, 0.1, 0.001, 0.1, 0.001, 0.1, 2]
+    KH_PARAS_3D = (0.001, 0.1, 0.001, 0.1, 0.001, 0.1, 2)
     #              ax     bx    ay     by    az     bz   model
 
     # Soil-water retention parameters
-    SE_PARAS = [1, 0.1, 0.4, 0.01]
-    #            a_m  b_m theta_s theta_r
+    SE_PARAS =    (1, 0.1, 0.4, 0.01)
+    #             a_m  b_m theta_s theta_r
 
     # Solute transport parameters
-    TRANS_PARAS = [20, 20, 2, 0.0014]
-    #               D_l D_m D_t r_b
+    TRANS_PARAS = (20,  20,  2,  0.0014)
+    #              D_l  D_m  D_t   r_b
     
-    
+    # Surface choice for node selection
+    SURFACE_MAP = {
+    "LEFT":    ("x", "min"),
+    "RIGHT":   ("x", "max"),
+    "DOWN":    ("y", "min"),
+    "UP":      ("y", "max"),
+    "BOTTOM":  ("z", "min"),
+    "TOP":     ("z", "max"),
+    }
     
     
     def __init__(self, project_name):
@@ -452,6 +461,97 @@ class sle_io:
         
         return self
 
+    def select_node(self, by, value):
+        """ 
+        Select nodes by assaigning boudary surface or coordinate 
+        
+        Arguments:
+        -------------        
+        by : {"coordinate", "surface"}
+            Method used to select nodes.
+
+        value :
+            coordinates : tuple in tuple
+                ((x, y), (x, y), ...) support multiple node
+
+            
+            surface : str
+                "LEFT", "RIGHT", "UP", "DOWN",
+                "TOP", "BOTTOM"
+            
+        Returns
+        -------
+        pd.DataFrame
+            Selected nodes.
+            
+        """
+        
+        if  by == 'surface':
+            
+            surface = value.upper()
+            
+            if value  not in self.SURFACE_MAP:
+                raise ValueError(f"Unknown boundary surface '{surface}'"
+                                f"Available surfaces : {self.SURFACE_MAP.keys()}"
+                )
+                                
+            axis, side = self.SURFACE_MAP[surface]
+        
+            coord = getattr(self.df_node_coordinate[axis], side)()
+
+            
+            return self.node[self.df_node_coordinate[axis] == coord].copy()  
+            
+        elif by == 'coordinate':
+            
+            coords = value
+            
+            if not isinstance(coords, tuple):
+                raise ValueError("value for 'Coordinate' method contain coordinate inside tuple")
+            
+            masks = [] 
+            
+            for coord in coords:
+                
+                if len(value) == 2:
+                    x, y = value
+                    
+                    mask = (
+                        (self.df_node_coordinate['x'] == x) &
+                        (self.df_node_coordinate['y'] == y)
+                    )
+                
+                elif len(value) == 3:
+                    
+                    x, y, z = value
+                    
+                    mask = (
+                        (self.df_node_coordinate['x'] == x) &
+                        (self.df_node_coordinate['y'] == y) &
+                        (self.df_node_coordinate['z'] == z)
+                    )
+                
+                else:
+                    raise ValueError(
+                        "Input coordiante support only (x, y), (x, y, z) format"
+                    )
+                    
+                masks.append(mask)
+            
+            # Combine all booling values 
+            total_mask = masks[0]
+            
+            for m in masks[1:]:
+                total_mask = total_mask | m  # add all "True to  corresponding node_id"
+            
+            return self.df_node[total_mask].copy() 
+        
+        else:
+                raise ValueError(
+                    f"Invalid input: {by}"
+                    f"Method must be 'surface', 'coordinate' two ways"
+                )
+                    
     def add_geometry(self, start_coord, element_num, element_spacing):
         """
         Generate grid and element .dat files for groundwater simulation.
@@ -546,53 +646,94 @@ class sle_io:
         Parameters
         ----------
         init_paras : tuple [init_h, init_K, init_Ss, porosity]
-            init_h: initial Head
-            init_K: initial saturated hydraulic Conductivity
-            init_Ss: initial Specific Storage
-            porosity: inital porosity ()
-
+        
         Returns
         -------
         """       
         # check init_para contains enough data
-        if len(init_paras) != 4:
+        if len(init_paras) != 5:
             raise ValueError("Error: missing initial parameters, check init_para tuple")        
 
         
-        init_h, init_K, init_Ss, porosity = init_paras
+        init_h, init_flux, init_K, init_Ss, porosity = init_paras
         self.init_paras = init_paras 
         
-        # node and material
+        # node and material & df_node_coordinate (for selecting node_id)
         if self.dimension == 2:
-                self.df_node = node_2d_df(self.total_node_num, self.start_coord, self.element_spacing, init_h)    
+                self.df_node = node_2d_df(self.total_node_num, self.start_coord, self.element_spacing, init_h, init_flux)    
                 self.df_material = create_material_format_2d(
                         init_K, init_Ss, porosity, self.total_element_num,
                         self.KH_PARAS_2D, self.SE_PARAS, self.TRANS_PARAS
                     )
-
+                
+                self.df_node_coordinate = self.df_node.iloc[:, :self.dimension+1].copy()
+                self.df_node_coordinate.columns = ['node_id', 'x', 'y']
+                
         if self.dimension == 3:
-                self.df_node = node_3d_df(self.total_node_num, self.start_coord, self.element_spacing, init_h) 
+                self.df_node = node_3d_df(self.total_node_num, self.start_coord, self.element_spacing, init_h, init_flux) 
                 self.df_material = create_material_format_3d(
                         init_K, init_Ss, porosity, self.total_element_num,
                         self.KH_PARAS_3D, self.SE_PARAS, self.TRANS_PARAS
                     )
                 
+                self.df_node_coordinate = self.df_node.iloc[:, :self.dimension+1].copy()
+                self.df_node_coordinate.columns = ['node_id', 'x', 'y', 'z']
+                
 
-    
         return self
 
-    
-    def add_boundary():
+    def add_boundary(self, boundary):
         """
-        Generate boundary, bc file for groundwater simulation.        
-        Args:
+        Generate boundary and bc file for groundwater simulation.
 
-        Return:
+        Parameters
+        ----------
+        boundary : tuple
+            (method, value)
 
-        """    
+            method:
+                "surface" -> "LEFT", "RIGHT", ...
+
+                "coordinate" -> ((x1,y1), (x2,y2), ...)
+
+        Returns
+        -------
+        self
+        """
+            
+        method, value = boundary
         
-        return
+        node_id_select = self.select_node(method, value)
+        df_ele = pd.DataFrame(np.tile([self.total_element_num, " "]), (1, 1))
 
+        # for boundary
+        df_boundary = pd.DataFrame({
+            'node_id':  node_id_select,
+            'sc': 0,
+            'sp': 0,
+            'ep': 0,  
+        })
+        
+        self.df_boundary = pd.concat(
+            [df_ele, df_boundary], ignore_index = True
+        )
+        
+        # for bc
+        df_bc = pd.DataFrame({
+            'node_id':  node_id_select,
+            'init_h': self.init_paras[0],
+            'flux':   self.init_paras[1],
+            'sc': 0,  
+            'sflux': 0
+        })
+    
+            
+        self.df_bc = pd.concat(
+            [df_ele, df_bc], ignore_index = True
+        )
+                
+        return self
+        
     def add_observation():
         """
         Generate obwell file for groundwater simulation.     
@@ -625,7 +766,7 @@ class sle_io:
         
         return
 
-    def WriteToFile():
+    def writetofile():
         """
         Write all .dat files to working folder
 
@@ -635,7 +776,7 @@ class sle_io:
         
         return
     
-    def Run_Forward():
+    def run_forward():
         pass
 
 

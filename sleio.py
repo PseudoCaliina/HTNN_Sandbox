@@ -745,14 +745,33 @@ class sle_io:
         
         return
 
-    def add_source():
+    def add_source(src_wells):
         """
         Generate source, time file for groundwater simulation.     
         Args:
-
+        
+        src_wells : ( stress_1, stress_2, ...) 
+            stress = ( ((x1, y1), (x2, y2)), 'well name', inj_intensity ) 
+            
+        e.g.:    
+            src_wells = ( 
+                    ( ((288.5, 101, 150) , (288.5, 101, 150)), 'inj_1', 600)     
+                    ( ((300.5, 125, 150)) , 'inj_2', 600) 
+                )
+            
         Return:
 
         """    
+        
+        for src in src_wells:
+            
+            coor, inj_name, inj_int = src
+            
+            num_well = len(coor)
+            
+            node_id_select = self.select_node("coordinate", coor)
+        
+        
         
         return
 

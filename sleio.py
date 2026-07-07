@@ -394,13 +394,16 @@ class sle_io:
     
     # Surface choice for node selection
     SURFACE_MAP = {
-    "LEFT":    ("x", "min"),
-    "RIGHT":   ("x", "max"),
-    "DOWN":    ("y", "min"),
-    "UP":      ("y", "max"),
-    "BOTTOM":  ("z", "min"),
-    "TOP":     ("z", "max"),
+        "LEFT":    ("x", "min"),
+        "RIGHT":   ("x", "max"),
+        "DOWN":    ("y", "min"),
+        "UP":      ("y", "max"),
+        "BOTTOM":  ("z", "min"),
+        "TOP":     ("z", "max"),
     }
+    
+    # Well type
+    WELL_TYPE = { "observation", "injection", "pumping"}
     
     
     def __init__(self, project_name):
@@ -552,7 +555,7 @@ class sle_io:
                     f"Method must be 'surface', 'coordinate' two ways"
                 )
                     
-    def add_geometry(self, start_coord, element_num, element_spacing):
+    def create_geometry(self, start_coord, element_num, element_spacing):
         """
         Generate grid and element .dat files for groundwater simulation.
 
@@ -639,7 +642,7 @@ class sle_io:
         
         return self
     
-    def add_initial(self, init_paras):
+    def create_initial(self, init_paras):
         """
         Generate node, material file for groundwater simulation.
 
@@ -682,7 +685,7 @@ class sle_io:
 
         return self
 
-    def add_boundary(self, boundary):
+    def create_boundary(self, boundary):
         """
         Generate boundary and bc file for groundwater simulation.
 
@@ -734,48 +737,124 @@ class sle_io:
                 
         return self
         
-    def add_observation():
+    def add_wells(self, *wells):
         """
-        Generate obwell file for groundwater simulation.     
-        Args:
+        Add wells.
 
-        Return:
-
-        """    
-        
-        return
-
-    def add_source(src_wells):
-        """
-        Generate source, time file for groundwater simulation.     
-        Args:
-        
-        src_wells : ( stress_1, stress_2, ...) 
-            stress = ( ((x1, y1), (x2, y2)), 'well name', inj_intensity ) 
-            
-        e.g.:    
-            src_wells = ( 
-                    ( ((288.5, 101, 150) , (288.5, 101, 150)), 'inj_1', 600)     
-                    ( ((300.5, 125, 150)) , 'inj_2', 600) 
+        Parameters
+        ----------
+        wells :
+            (
+                stress,
+                coordinate,
+                name,
+                type,
+                parameter(dict)
+            )
+        e.g.:
+        inj_1 = (   1,          
+                    (288.5, 71,  120), 
+                    'inj_1', 
+                    'injection', 
+                    {'rate':const_rate, 'time': inj_time}
                 )
-            
-        Return:
 
-        """    
-        
-        for src in src_wells:
-            
-            coor, inj_name, inj_int = src
-            
-            num_well = len(coor)
-            
-            node_id_select = self.select_node("coordinate", coor)
-        
-        
-        
-        return
+        """
 
-    def add_simulation():
+        for well in wells:
+
+            stress, coordinate, name, well_type, parameter = well
+
+            if well_type not in self.WELL_TYPE:
+                raise ValueError(
+                    f"Well type must be {self.WELL_TYPE[:]} for {name}"
+                )                   
+            
+            if df_node.empty:
+                raise ValueError(
+                    f"Cannot find node at {coordinate}"
+                )            
+            
+            df_node = self.select_nodes(
+                by="coordinate",
+                value=coordinate
+            )
+
+            if df_node.empty:
+                raise ValueError(
+                    f"Cannot find node at {coordinate}"
+                )
+
+            node_id = int(df_node.iloc[0]["node_id"])
+
+            self.wells.append({
+                "stress": stress,
+                "node_id": node_id,
+                "coordinate": coordinate,
+                "name": name,
+                "type": well_type.lower(),
+                "parameter": parameter
+            })
+
+        return self
+
+    def create_observation(self):
+
+        rows = []
+
+        stress_list = sorted(
+            {w["stress"] for w in self.wells
+             if w["type"] == "observation"}
+        )
+
+        for stress_idx in stress_list:
+
+            obs = [
+                w for w in self.wells
+                if w["stress"] == stress_idx
+            ]
+
+            rows.append([stress_idx, len(obs)])
+
+            for well in obs:
+
+                rows.append([
+                    well["node_id"],
+                    well["name"]
+                ])
+
+        return pd.DataFrame(rows)
+
+    def create_source(self):
+
+        rows = []
+
+        stress_list = sorted(
+            {w["stress"] for w in self.wells
+             if w["type"] == "injection"}
+        )
+
+        for stress_idx in stress_list:
+
+            src = [
+                w for w in self.wells
+                if w["stress"] == stress_idx
+            ]
+
+            rows.append([stress_idx, len(src)])
+
+            for well in src:
+
+                rows.append([
+                    well["node_id"],
+                    well["name"],
+                    well["parameter"]["rate"],
+                    well["parameter"]["time"]
+                ])
+
+        return pd.DataFrame(rows)
+
+    def create_simulation():
         """
         Generate function, simulation, problem file for simulation
 

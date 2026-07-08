@@ -361,7 +361,7 @@ class sle_io:
 
     """
     
-    # CLASS ATTRIBUTE
+    ###### Simulation control ######
     DIMENSION_MAP = {
         "2D": 2,
         "3D": 3,
@@ -377,7 +377,8 @@ class sle_io:
         "unconfined": 1,
     }
     
-    # DEFAULT PARAMETERS
+        
+    ###### DEFAULT PARAMETERS ######
     KH_PARAS_2D = (0.001, 0.1, 0.001, 0.1, 2)
     #              ax     bx    ay     by   model
 
@@ -392,7 +393,38 @@ class sle_io:
     TRANS_PARAS = (20,  20,  2,  0.0014)
     #              D_l  D_m  D_t   r_b
     
-    # Surface choice for node selection
+    # simulation
+    SIMULATION_DEFAULT = {
+        "iteration_scheme": 2,          # 2: Newton-Raphson iteration scheme
+        "matrix_type": 2,               # 2: Diagonal lumped matrix
+        "interpolation": 0,             # 0: Element interpolation method
+        "max_iteration": 100,           # Maximum nonlinear iterations
+        "flow_weight": 0.5,             # Time weighting factor for flow
+        "transport_weight": 0.5,        # Time weighting factor for transport
+        "head_tolerance": 1e-6,         # Pressure head convergence tolerance
+        "flow_tolerance": 1e-9,         # Flow convergence tolerance
+        "velocity_tolerance": 1e-9,     # Velocity convergence tolerance
+        "transport_tolerance": 1e-9,    # Transport convergence tolerance
+    }
+    
+    # function
+    FUNCTION_DEFAULT = {
+        "parallel": 0,
+        "solver_mode": [1, 2],
+        "regularization": [1, 0, 0, 0, 0, 0, 0, 0],
+        "update_method": 2,
+    }
+
+    # problem
+    PROBLEM_DEFAULT = {
+        "simulation_type": 1,      # 1: Forward
+        "output_flag": 1,          # Generate output.dat
+        "coordinate_system": 1,    # Vertical axisymmetric
+        "head_type": 1,            # Total head
+    }
+
+    
+    ###### CHOICE FOR BOUNDARY ######
     SURFACE_MAP = {
         "LEFT":    ("x", "min"),
         "RIGHT":   ("x", "max"),
@@ -402,8 +434,17 @@ class sle_io:
         "TOP":     ("z", "max"),
     }
     
-    # Well type
-    WELL_TYPE = { "observation", "injection", "pumping"}
+    
+    ###### WELL TYPE ######
+    WELL_TYPE = { "observation", 
+                 "injection",
+                 "pumping"}
+    
+    ###### OUTPUT FLAG ######
+    OUTPUT_MAP = {
+        'integer_time':  1 ,
+        'each_time_step': 0,
+    }
     
     
     def __init__(self, project_name):
@@ -465,95 +506,119 @@ class sle_io:
         return self
 
     def select_node(self, by, value):
-        """ 
-        Select nodes by assaigning boudary surface or coordinate 
-        
-        Arguments:
-        -------------        
-        by : {"coordinate", "surface"}
-            Method used to select nodes.
+        """
+        Select nodes by surface or coordinates.
+
+        Parameters
+        ----------
+        by : {"surface", "coordinate"}
+            Node selection method.
 
         value :
-            coordinates : tuple in tuple
-                ((x, y), (x, y), ...) support multiple node
+            If by == "surface":
+                {"LEFT", "RIGHT", "UP", "DOWN", "TOP", "BOTTOM"}
 
-            
-            surface : str
-                "LEFT", "RIGHT", "UP", "DOWN",
-                "TOP", "BOTTOM"
-            
+            If by == "coordinate":
+                Tuple of coordinates.
+
+                2D:
+                    ((x1, y1), (x2, y2), ...)
+
+                3D:
+                    ((x1, y1, z1), (x2, y2, z2), ...)
+
         Returns
         -------
-        pd.DataFrame
-            Selected nodes.
-            
+        pandas.DataFrame
+            Selected node information.
         """
-        
-        if  by == 'surface':
-            
+
+        by = by.lower()
+
+        # ---------------------------------------------------------
+        # Select by surface
+        # ---------------------------------------------------------
+        if by == "surface":
+
             surface = value.upper()
-            
-            if value  not in self.SURFACE_MAP:
-                raise ValueError(f"Unknown boundary surface '{surface}'"
-                                f"Available surfaces : {self.SURFACE_MAP.keys()}"
+
+            if surface not in self.SURFACE_MAP:
+                raise ValueError(
+                    f"Unknown surface '{surface}'. "
+                    f"Available surfaces: {tuple(self.SURFACE_MAP.keys())}"
                 )
-                                
+
             axis, side = self.SURFACE_MAP[surface]
-        
+
             coord = getattr(self.df_node_coordinate[axis], side)()
 
-            
-            return self.node[self.df_node_coordinate[axis] == coord].copy()  
-            
-        elif by == 'coordinate':
-            
+            df = self.df_node[
+                self.df_node_coordinate[axis] == coord
+            ].copy()
+
+        # ---------------------------------------------------------
+        # Select by coordinates
+        # ---------------------------------------------------------
+        elif by == "coordinate":
+
             coords = value
-            
+
             if not isinstance(coords, tuple):
-                raise ValueError("value for 'Coordinate' method contain coordinate inside tuple")
-            
-            masks = [] 
-            
-            for coord in coords:
-                
-                if len(value) == 2:
-                    x, y = value
-                    
-                    mask = (
-                        (self.df_node_coordinate['x'] == x) &
-                        (self.df_node_coordinate['y'] == y)
-                    )
-                
-                elif len(value) == 3:
-                    
-                    x, y, z = value
-                    
-                    mask = (
-                        (self.df_node_coordinate['x'] == x) &
-                        (self.df_node_coordinate['y'] == y) &
-                        (self.df_node_coordinate['z'] == z)
-                    )
-                
-                else:
-                    raise ValueError(
-                        "Input coordiante support only (x, y), (x, y, z) format"
-                    )
-                    
-                masks.append(mask)
-            
-            # Combine all booling values 
-            total_mask = masks[0]
-            
-            for m in masks[1:]:
-                total_mask = total_mask | m  # add all "True to  corresponding node_id"
-            
-            return self.df_node[total_mask].copy() 
-        
-        else:
                 raise ValueError(
-                    f"Invalid input: {by}"
-                    f"Method must be 'surface', 'coordinate' two ways"
+                    "Coordinates must be provided as a tuple.\n"
+                    "Example (2D): ((0, 0), (10, 0))\n"
+                    "Example (3D): ((0, 0, 0), (10, 0, 5))"
                 )
+
+            selected = []
+
+            for coord in coords:
+
+                if len(coord) == 2:
+
+                    x, y = coord
+
+                    df = self.df_node[
+                        (self.df_node_coordinate["x"] == x) &
+                        (self.df_node_coordinate["y"] == y)
+                    ]
+
+                elif len(coord) == 3:
+
+                    x, y, z = coord
+
+                    df = self.df_node[
+                        (self.df_node_coordinate["x"] == x) &
+                        (self.df_node_coordinate["y"] == y) &
+                        (self.df_node_coordinate["z"] == z)
+                    ]
+
+                else:
+
+                    raise ValueError(
+                        "Each coordinate must be either (x, y) or (x, y, z)."
+                    )
+
+                selected.append(df)
+
+            df = pd.concat(selected, ignore_index=True)
+
+        # ---------------------------------------------------------
+        # Invalid method
+        # ---------------------------------------------------------
+        else:
+
+            raise ValueError(
+                "Selection method must be either 'surface' or 'coordinate'."
+            )
+
+        # ---------------------------------------------------------
+        # Check result
+        # ---------------------------------------------------------
+        if df.empty:
+            raise ValueError("No matching nodes were found.")
+
+        return df
                     
     def create_geometry(self, start_coord, element_num, element_spacing):
         """
@@ -707,7 +772,7 @@ class sle_io:
         method, value = boundary
         
         node_id_select = self.select_node(method, value)
-        df_ele = pd.DataFrame(np.tile([self.total_element_num, " "]), (1, 1))
+        df_ele = pd.DataFrame([[self.total_element_num, " "]])
 
         # for boundary
         df_boundary = pd.DataFrame({
@@ -743,7 +808,7 @@ class sle_io:
 
         Parameters
         ----------
-        wells :
+        w1 :
             (
                 stress,
                 coordinate,
@@ -751,6 +816,8 @@ class sle_io:
                 type,
                 parameter(dict)
             )
+        wells = (w1, w2,...)    
+        
         e.g.:
         inj_1 = (   1,          
                     (288.5, 71,  120), 
@@ -758,6 +825,8 @@ class sle_io:
                     'injection', 
                     {'rate':const_rate, 'time': inj_time}
                 )
+                
+        mdoel.add_wells(inj_1, inj_2, ...)
 
         """
 
@@ -801,80 +870,238 @@ class sle_io:
     def create_observation(self):
 
         rows = []
-
+        
+        
+        # by "observation"
         stress_list = sorted(
             {w["stress"] for w in self.wells
              if w["type"] == "observation"}
         )
 
         for stress_idx in stress_list:
-
+            
+            # by each "stress"
             obs = [
                 w for w in self.wells
-                if w["stress"] == stress_idx
+                if w["stress"] == stress_idx 
+                and w["type"]  == "observation"
             ]
 
             rows.append([stress_idx, len(obs)])
 
             for well in obs:
-
                 rows.append([
-                    well["node_id"],
-                    well["name"]
+                    well["node_id"], # node idex       
+                    well["name"]     # well name (observation)
                 ])
 
         return pd.DataFrame(rows)
 
     def create_source(self):
 
-        rows = []
-
+        # select by well type
         stress_list = sorted(
             {w["stress"] for w in self.wells
              if w["type"] == "injection"}
         )
-
+        # for [total stress number] and [0] , 0 for no reason?
+        df_up = pd.DataFrame(
+            [[len(stress_list)], [0]]
+            ) 
+        src_list = [df_up]
+        
+        # store each stress
         for stress_idx in stress_list:
 
             src = [
                 w for w in self.wells
-                if w["stress"] == stress_idx
+                if w["stress"] == stress_idx 
+                and  w["type"] == "injection"
             ]
 
-            rows.append([stress_idx, len(src)])
-
+            rows = []
+            df_between = pd.DataFrame([len(src)])
+            
             for well in src:
-
+                
                 rows.append([
-                    well["node_id"],
-                    well["name"],
-                    well["parameter"]["rate"],
-                    well["parameter"]["time"]
+                    well["node_id"],              # node idex
+                    well["parameter"]["rate"],    # sink/source for flow
+                    0,                            # sink/source for concentration
+                    well["parameter"]["time"][0], # start time
+                    well["parameter"]["time"][1], # end time
+                    0,                            # start time for concentration
+                    0,                            # end time for concentration
+                    well["name"],                 # well name
                 ])
-
-        return pd.DataFrame(rows)
-
-    def create_simulation():
-        """
-        Generate function, simulation, problem file for simulation
-
-        Return:
-
-        """    
+            df_ = pd.DataFrame(rows)
+            df = pd.concat(df_between, df_)
+            
         
-        return
-
-    def writetofile():
-        """
-        Write all .dat files to working folder
-
-        Return:
-
-        """    
+        return pd.concat([df_up, df])
         
-        return
+    def create_times(self, *times):
+        """ 
+        Add time.
+
+        Parameters
+        ----------
+        t1 =  (dt, dt_max, dt_multipler, t_max, output_flag, t_reduction)
+        
+        """
+        t_list = []
+        for t_ in times:
+            dt, dt_max, dt_m, t_max, flag, t_re = t_
+            
+            if flag not in self.OUTPUT_MAP:
+                raise ValueError(f'output map for time: {self.OUTPUT_MAP}' 
+                                 f'select the corresponding type of flag')
+            
+            t_list.append([
+                dt, 
+                dt_max, 
+                dt_m,
+                t_max,
+                self.OUTPUT_MAP[flag],
+                t_re
+            ])
+        
+        
+        self.df_time =  pd.DataFrame(t_list).T   
+        
+        return self
+
+    def create_function(self, **kwargs):
+        """
+        Create function.dat.
+
+        Any keyword argument overrides the default value.
+        
+        function.dat format:
+        --------------------------
+        2                dimension (2:2D, 3:3D)
+        0                confined/unconfined (0,1)
+        0                nctimes parallel/solver parallel  (0,1)
+        1 2              0: Pert. 1: Adj.
+        1 0 0 0 0 0 0 0  [rp,rq1,rq2,rq3,rq,rw,rc,rcq]
+        2                1: Reduced order by SVD.  2: Full matrix.   3: No update
+        --------------------------
+        """
+
+        d = self.FUNCTION_DEFAULT.copy()
+        d.update(kwargs)
+
+        self.df_fucntion =  pd.DataFrame([
+            [self.dimension],
+            [self.aquifer_type],
+            [d["parallel"]],
+            d["solver_mode"],
+            d["regularization"],
+            [d["update_method"]],
+        ])
+        
+        return self
+
+    def create_simulation(self, **kwargs):
+        """
+        Create simulation.dat.
+
+        Any keyword argument overrides the default value.
+        """
+
+        d = self.SIMULATION_DEFAULT.copy()
+        d.update(kwargs)
+
+        self.df_simulation =  pd.DataFrame([[
+                    d["iteration_scheme"],
+                    d["matrix_type"],
+                    d["interpolation"],
+                    d["max_iteration"],
+                    d["flow_weight"],
+                    d["transport_weight"],
+                    d["head_tolerance"],
+                    d["flow_tolerance"],
+                    d["velocity_tolerance"],
+                    d["transport_tolerance"],
+        ]])
+        
+        return self
+
+    def _create_problem(self, **kwargs):
+        """
+        Create problem.dat.
+
+        Any keyword argument overrides the default value.
+        """
+
+        d = self.PROBLEM_DEFAULT.copy()
+        d.update(kwargs)
+
+        self.df_problem =  pd.DataFrame([[
+                d["simulation_type"],
+                d["output_flag"],
+                self.PROBLEM_MAP[self.problem_type],
+                d["coordinate_system"],
+                d["head_type"],
+        ]])
+
+        return self
+        
+    def write_forward_input(self, path):
+        """
+        Write all required input files for forward simulation.
+        """
+
+        files = {
+            "grid.dat": ("df_grid", "add_geometry()"),
+            "node.dat": ("df_node", "add_initial()"),
+            "element.dat": ("df_element", "add_geometry()"),
+            "bc.dat": ("df_bc", "add_boundary()"),
+            "boundary.dat": ("df_boundary", "add_boundary()"),
+            "sources.dat": ("df_sources", "add_wells()"),
+            "material.dat": ("df_material", "add_initial()"),
+            "obwell.dat": ("df_obwell", "add_wells()"),
+            "function.dat": ("df_function", "create_control_files()"),
+            "time.dat": ("df_time", "add_time()"),
+            "problem.dat": ("df_problem", "create_control_files()"),
+            "simulation.dat": ("df_simulation", "create_control_files()"),
+        }
+
+        # Check required DataFrames
+        missing = [
+            f"{attr} (call {method} first)"
+            for _, (attr, method) in files.items()
+            if getattr(self, attr, None) is None
+        ]
+
+        if missing:
+            raise ValueError(
+                "The following data have not been created:\n"
+                + "\n".join(f"  - {m}" for m in missing)
+            )
+
+        os.makedirs(path, exist_ok=True)
+
+        for filename, (attr, _) in files.items():
+
+            df = getattr(self, attr)
+
+            df.to_csv(
+                os.path.join(path, filename),
+                sep="\t",
+                index=False,
+                header=False,
+            )
+
+        if os.path.exists(os.path.join(path, "SLE.exe")):
+            print("✓ Forward simulation files are ready.")
+        else:
+            print("✓ Input files are generated.")
+            print("! Please copy SLE.exe into the project folder before running the simulation.")
+
+        return self
     
-    def run_forward():
-        pass
+    # def run_forward():
+    #     pass
 
 

@@ -1,0 +1,31 @@
+3 -D model
+No unreasonable values in input files. Start running VSAFT2.
+
+STEADY-STATE FLOW
+mainsb called
+stress            1  done.
+STEADY-STATE FLOW
+mainsb called
+stress            2  done.
+STEADY-STATE FLOW
+mainsb called
+stress            3  done.
+STEADY-STATE FLOW
+mainsb called
+stress            4  done.
+STEADY-STATE FLOW
+mainsb called
+stress            5  done.
+STEADY-STATE FLOW
+mainsb called
+stress            6  done.
+STEADY-STATE FLOW
+mainsb called
+stress            7  done.
+STEADY-STATE FLOW
+mainsb called
+stress            8  done.
+The program terminates normally!
+Please run Tecplot to view the result.
+Total elapsed time is:      8.250 seconds
+

@@ -13,7 +13,10 @@ import os
 import math
 import pandas as pd
 import numpy as np
+from pathlib import Path
 import matplotlib.pyplot as plt
+
+
 
 # ===== Functions =====
 def element_cor_2d(start_coord, element_spacing):  
@@ -326,25 +329,18 @@ def read_FwdObs(file_path, simulation_state, init_h):
 class sle_io:
     """
     --- Vsaft2 Solver Forward Simulation Input Files ---
-    (1)
-    grid.dat     OK
-    element.dat  OK
-    (2)
-    node.dat     OK
-    material.dat  OK
-    (3)
-    problem.dat    OK
-    function.dat   OK
-    simulation.dat OK
-    (4)
-    sources.dat   OK
-    time.dat      OK         (nc if steady?)
-    (5)
-    obwell.dat    OK
-    (6)
-    boundary.dat  OK
-    bc.dat        OK
-    
+    grid.dat     
+    element.dat  
+    node.dat     
+    material.dat  
+    problem.dat    
+    function.dat   
+    simulation.dat 
+    sources.dat   
+    time.dat               (nc if steady?)
+    obwell.dat    
+    boundary.dat  
+    bc.dat       
     time_vary_h_bc.dat     (nc)
     time_vary_f_bc.dat     (nc)
     validation_control.dat (nc)
@@ -401,7 +397,7 @@ class sle_io:
         "max_iteration": 100,           # Maximum nonlinear iterations
         "flow_weight": 0.5,             # Time weighting factor for flow
         "transport_weight": 0.5,        # Time weighting factor for transport
-        "head_tolerance": 1e-6,         # Pressure head convergence tolerance
+        "head_tolerance": 1e-3,         # Pressure head convergence tolerance
         "flow_tolerance": 1e-9,         # Flow convergence tolerance
         "velocity_tolerance": 1e-9,     # Velocity convergence tolerance
         "transport_tolerance": 1e-9,    # Transport convergence tolerance
@@ -423,7 +419,6 @@ class sle_io:
         "head_type": 1,            # Total head
     }
 
-    
     ###### CHOICE FOR BOUNDARY ######
     SURFACE_MAP = {
         "LEFT":    ("x", "min"),
@@ -434,21 +429,30 @@ class sle_io:
         "TOP":     ("z", "max"),
     }
     
+    ###### BC TYPE #####
+    BC_MAP = {
+        'flux': 0,
+        'head': 1
+    }
     
     ###### WELL TYPE ######
-    WELL_TYPE = { "observation", 
-                 "injection",
-                 "pumping"}
+    WELL_TYPE = { 
+                 "observation", 
+                  "injection",
+                  "pumping"
+                }
     
     ###### OUTPUT FLAG ######
     OUTPUT_MAP = {
         'integer_time':  1 ,
         'each_time_step': 0,
     }
-    
-    
+        
     def __init__(self, project_name):
         self.project_name = project_name
+
+        # empty well database for project
+        self.wells = []
         print(f'Project: {self.project_name}')
 
     def set_parameters(self, simulation_control):
@@ -552,7 +556,7 @@ class sle_io:
 
             coord = getattr(self.df_node_coordinate[axis], side)()
 
-            df = self.df_node[
+            df = self.df_node_coordinate[
                 self.df_node_coordinate[axis] == coord
             ].copy()
 
@@ -578,7 +582,7 @@ class sle_io:
 
                     x, y = coord
 
-                    df = self.df_node[
+                    df = self.df_node_coordinate[
                         (self.df_node_coordinate["x"] == x) &
                         (self.df_node_coordinate["y"] == y)
                     ]
@@ -587,7 +591,7 @@ class sle_io:
 
                     x, y, z = coord
 
-                    df = self.df_node[
+                    df = self.df_node_coordinate[
                         (self.df_node_coordinate["x"] == x) &
                         (self.df_node_coordinate["y"] == y) &
                         (self.df_node_coordinate["z"] == z)
@@ -619,7 +623,67 @@ class sle_io:
             raise ValueError("No matching nodes were found.")
 
         return df
-                    
+
+    def add_wells(self, *wells):
+        """
+        Add wells.
+
+        Parameters
+        ----------
+        w1 :
+            (
+                stress,
+                coordinate,
+                name,
+                type,
+                parameter(dict)
+            )
+        wells = (w1, w2,...)    
+        
+        e.g.:
+        inj_1 = (   1,          
+                    ((288.5, 71,  120), )
+                    'inj_1', 
+                    'injection', 
+                    {'rate':const_rate, 'time': inj_time}
+                )
+                
+        mdoel.add_wells(inj_1, inj_2, ...)
+
+        """
+        
+        for w in wells:
+
+            stress, coordinate, name, well_type, parameter = w
+
+            if well_type not in self.WELL_TYPE:
+                raise ValueError(
+                    f"Well type must be {self.WELL_TYPE[:]} for {name}"
+                )                   
+                     
+            df_node = self.select_node(
+                by="coordinate",
+                value = coordinate
+            )
+
+            if df_node.empty:
+                raise ValueError(
+                    f"Cannot find node at {coordinate}"
+                )
+
+            node_id = int(df_node["node_id"].values)
+
+            self.wells.append({
+                "stress": stress,
+                "node_id": node_id,
+                "coordinate": coordinate,
+                "name": name,
+                "type": well_type.lower(),
+                "parameter": parameter
+            })
+
+        return self
+              
     def create_geometry(self, start_coord, element_num, element_spacing):
         """
         Generate grid and element .dat files for groundwater simulation.
@@ -769,26 +833,32 @@ class sle_io:
         self
         """
             
-        method, value = boundary
+        method, value, bc_type = boundary
         
-        node_id_select = self.select_node(method, value)
-        df_ele = pd.DataFrame([[self.total_element_num, " "]])
+        if bc_type not in self.BC_MAP:
+            
+            raise ValueError(f"boundary should be {self.BC_MAP}")
+        
+        df_node_id_select = self.select_node(method, value)
+        df_bc_ele = pd.DataFrame([[len(df_node_id_select['node_id']), " "]])
 
         # for boundary
         df_boundary = pd.DataFrame({
-            'node_id':  node_id_select,
+            'node_id':  df_node_id_select['node_id'].values,
+            'hydraulic condition': self.BC_MAP[bc_type],
             'sc': 0,
             'sp': 0,
             'ep': 0,  
+            'bc_node_for_angle':0
         })
         
         self.df_boundary = pd.concat(
-            [df_ele, df_boundary], ignore_index = True
+            [df_bc_ele, df_boundary], ignore_index = True
         )
         
         # for bc
         df_bc = pd.DataFrame({
-            'node_id':  node_id_select,
+            'node_id':  df_node_id_select['node_id'].values,
             'init_h': self.init_paras[0],
             'flux':   self.init_paras[1],
             'sc': 0,  
@@ -797,80 +867,14 @@ class sle_io:
     
             
         self.df_bc = pd.concat(
-            [df_ele, df_bc], ignore_index = True
+            [df_bc_ele, df_bc], ignore_index = True
         )
                 
-        return self
-        
-    def add_wells(self, *wells):
-        """
-        Add wells.
-
-        Parameters
-        ----------
-        w1 :
-            (
-                stress,
-                coordinate,
-                name,
-                type,
-                parameter(dict)
-            )
-        wells = (w1, w2,...)    
-        
-        e.g.:
-        inj_1 = (   1,          
-                    (288.5, 71,  120), 
-                    'inj_1', 
-                    'injection', 
-                    {'rate':const_rate, 'time': inj_time}
-                )
-                
-        mdoel.add_wells(inj_1, inj_2, ...)
-
-        """
-
-        for well in wells:
-
-            stress, coordinate, name, well_type, parameter = well
-
-            if well_type not in self.WELL_TYPE:
-                raise ValueError(
-                    f"Well type must be {self.WELL_TYPE[:]} for {name}"
-                )                   
-            
-            if df_node.empty:
-                raise ValueError(
-                    f"Cannot find node at {coordinate}"
-                )            
-            
-            df_node = self.select_nodes(
-                by="coordinate",
-                value=coordinate
-            )
-
-            if df_node.empty:
-                raise ValueError(
-                    f"Cannot find node at {coordinate}"
-                )
-
-            node_id = int(df_node.iloc[0]["node_id"])
-
-            self.wells.append({
-                "stress": stress,
-                "node_id": node_id,
-                "coordinate": coordinate,
-                "name": name,
-                "type": well_type.lower(),
-                "parameter": parameter
-            })
-
         return self
 
     def create_observation(self):
 
         rows = []
-        
         
         # by "observation"
         stress_list = sorted(
@@ -895,35 +899,35 @@ class sle_io:
                     well["name"]     # well name (observation)
                 ])
 
-        return pd.DataFrame(rows)
-
+            self.df_obwell = pd.DataFrame(rows)
+        
+        return self
+    
     def create_source(self):
+
 
         # select by well type
         stress_list = sorted(
             {w["stress"] for w in self.wells
              if w["type"] == "injection"}
         )
-        # for [total stress number] and [0] , 0 for no reason?
-        df_up = pd.DataFrame(
-            [[len(stress_list)], [0]]
-            ) 
-        src_list = [df_up]
         
+        df_up = pd.DataFrame([[len(stress_list)], [0]]) # for [total stress number] and [0]
+        
+        src_list = [df_up]
         # store each stress
         for stress_idx in stress_list:
 
             src = [
                 w for w in self.wells
-                if w["stress"] == stress_idx 
-                and  w["type"] == "injection"
+                if w["stress"] == stress_idx and  w["type"] == "injection"
             ]
 
             rows = []
             df_between = pd.DataFrame([len(src)])
-            
+
             for well in src:
-                
+
                 rows.append([
                     well["node_id"],              # node idex
                     well["parameter"]["rate"],    # sink/source for flow
@@ -934,11 +938,13 @@ class sle_io:
                     0,                            # end time for concentration
                     well["name"],                 # well name
                 ])
-            df_ = pd.DataFrame(rows)
-            df = pd.concat(df_between, df_)
+                
+            df = pd.DataFrame(rows)
+            src_list.append(pd.concat([df_between, df]))
             
+        self.df_source = pd.concat(src_list)
         
-        return pd.concat([df_up, df])
+        return self
         
     def create_times(self, *times):
         """ 
@@ -991,7 +997,7 @@ class sle_io:
         d = self.FUNCTION_DEFAULT.copy()
         d.update(kwargs)
 
-        self.df_fucntion =  pd.DataFrame([
+        self.df_function =  pd.DataFrame([
             [self.dimension],
             [self.aquifer_type],
             [d["parallel"]],
@@ -1023,11 +1029,11 @@ class sle_io:
                     d["flow_tolerance"],
                     d["velocity_tolerance"],
                     d["transport_tolerance"],
-        ]])
+        ]]).T
         
         return self
 
-    def _create_problem(self, **kwargs):
+    def create_problem(self, **kwargs):
         """
         Create problem.dat.
 
@@ -1040,68 +1046,78 @@ class sle_io:
         self.df_problem =  pd.DataFrame([[
                 d["simulation_type"],
                 d["output_flag"],
-                self.PROBLEM_MAP[self.problem_type],
+                self.problem_type,
                 d["coordinate_system"],
                 d["head_type"],
-        ]])
+        ]]).T
 
         return self
         
     def write_forward_input(self, path):
         """
         Write all required input files for forward simulation.
+
+        Parameters
+        ----------
+        path : str or Path
+            Output folder for SLE input files.
         """
 
-        files = {
-            "grid.dat": ("df_grid", "add_geometry()"),
-            "node.dat": ("df_node", "add_initial()"),
-            "element.dat": ("df_element", "add_geometry()"),
-            "bc.dat": ("df_bc", "add_boundary()"),
-            "boundary.dat": ("df_boundary", "add_boundary()"),
-            "sources.dat": ("df_sources", "add_wells()"),
-            "material.dat": ("df_material", "add_initial()"),
-            "obwell.dat": ("df_obwell", "add_wells()"),
-            "function.dat": ("df_function", "create_control_files()"),
-            "time.dat": ("df_time", "add_time()"),
-            "problem.dat": ("df_problem", "create_control_files()"),
-            "simulation.dat": ("df_simulation", "create_control_files()"),
+        # All required DataFrames
+        required_files = {
+            "grid.dat":     self.df_grid,
+            "node.dat":     self.df_node,
+            "element.dat":  self.df_element,
+            "bc.dat":       self.df_bc,
+            "boundary.dat": self.df_boundary,
+            "sources.dat":  self.df_source,
+            "material.dat": self.df_material,
+            "obwell.dat":   self.df_obwell,
+            "function.dat": self.df_function,
+            "time.dat":     self.df_time,
+            "problem.dat":  self.df_problem,
+            "simulation.dat": self.df_simulation,
         }
 
-        # Check required DataFrames
+        # Check missing DataFrames
         missing = [
-            f"{attr} (call {method} first)"
-            for _, (attr, method) in files.items()
-            if getattr(self, attr, None) is None
+            name for name, df in required_files.items()
+            if df is None
         ]
 
         if missing:
             raise ValueError(
-                "The following data have not been created:\n"
-                + "\n".join(f"  - {m}" for m in missing)
+                "The following input files have not been created:\n"
+                + "\n".join(f"  - {name}" for name in missing)
             )
 
-        os.makedirs(path, exist_ok=True)
+        # Create output folder if it does not exist
+        output_dir = Path(path)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        for filename, (attr, _) in files.items():
+        # Write files
+        for filename, df in required_files.items():
 
-            df = getattr(self, attr)
+            header = filename == "problem.dat"
 
             df.to_csv(
-                os.path.join(path, filename),
+                output_dir / filename,
                 sep="\t",
                 index=False,
-                header=False,
+                header=header
             )
 
-        if os.path.exists(os.path.join(path, "SLE.exe")):
-            print("✓ Forward simulation files are ready.")
+        print(f"Successfully wrote {len(required_files)} files to:")
+        print(output_dir.resolve())
+
+        if (output_dir / "SLE.exe").exists():
+            print("Ready for forward simulation!")
         else:
-            print("✓ Input files are generated.")
-            print("! Please copy SLE.exe into the project folder before running the simulation.")
+            print("SLE.exe not found. Please copy SLE.exe into this folder.")
 
         return self
     
-    # def run_forward():
-    #     pass
+    def run_forward():
+        pass
 
 

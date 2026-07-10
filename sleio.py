@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+from subprocess import Popen, PIPE, STDOUT
 
 
 
@@ -293,37 +294,45 @@ def create_material_format_3d(K, Ss, n, ele_num, Kh_paras, Se_paras, Trans_paras
     
     return df
    
-def read_FwdObs(file_path, simulation_state, init_h):
-    header = ['loca', 'well', 'time', 'wlevel','flux_x','flux_y','w_content','solute_concentation','solute_flux', '?']
-    df = pd.read_csv(file_path, header=None,sep=r'\s+', names = header, engine='python')
-    df.drop([0], inplace=True)
-    df_groupby = df.groupby('well')
+def rf_generation():
+    """ 
+    Allow user to generate random field based on the geometry and geostatistics
+    
+    """
+    
+    pass
 
-    df_head = pd.DataFrame()
-    well_list = sorted(list(df_groupby.groups), key=len)
+def plot_domain_2D():
+    """ 
+    Plot and check the geometry of the 2D domain
+    
+    """
+    pass
 
-    if simulation_state == "transient":
+def plot_domain_3D():
+    """  
+    Plot and check  geometry of the 3D domain
+    
+    """
+    
+    pass
 
-        for well_name in well_list:     
-            df_well = df_groupby.get_group(well_name)['wlevel']
-            df_well.name = well_name
-            df_well.reset_index(inplace=True, drop=True)
-            
-            df_head[well_name] = df_well
-        df_head = df_head.subtract(df_head.iloc[0], axis = 1 )
+def plot_wells():
+    """ 
+    Plot the wells (include Inj_w and Obs_w)
+    
+    
+    """
+    
+    pass
 
-    elif simulation_state == "steady":
-
-        for well_name in well_list:   
-            df_well = df_groupby.get_group(well_name)['wlevel']
-            df_well.name = well_name
-            df_well.reset_index(inplace=True, drop=True)
-            
-            df_head[well_name] = df_well
-        df_head = df_head.subtract(init_h, axis = 1 )            
-                
-    return df_head
-
+def plot_simulation_head():
+    """ 
+    Plot the head simulation result (separate by transient and steady)
+    
+    """
+    
+    pass
 
 # ===== Class =====
 class sle_io:
@@ -354,7 +363,6 @@ class sle_io:
     ! All .dat files and SLE.exe must be located in the same folder; 
     ! Otherwise, the simulation will not run.
                  
-
     """
     
     ###### Simulation control ######
@@ -372,8 +380,7 @@ class sle_io:
         "confined": 0,
         "unconfined": 1,
     }
-    
-        
+      
     ###### DEFAULT PARAMETERS ######
     KH_PARAS_2D = (0.001, 0.1, 0.001, 0.1, 2)
     #              ax     bx    ay     by   model
@@ -455,28 +462,31 @@ class sle_io:
         self.wells = []
         print(f'Project: {self.project_name}')
 
+    # Tools
     def set_parameters(self, simulation_control):
         """
         Set simulation parameters
         
         Parameters
         ----------
-        simulation_control : tuple[str, str, str]
+        simulation_control : tuple [str, str, str, int]
         (
             dimension,
             problem_type,
             aquifer_type,
+            stress_number
         )
         dimension: "2D" or "3D"
         problem_type: "steady" or "transient"
         aquifer_type: "confined" or "unconfined"
+        stress_number: total pumping/injection event 
         
         """ 
         if len(simulation_control) != 3:
             raise ValueError("Error: Tuple simulation control must contain 3 element")        
 
         # Unpack tuple
-        dimension, problem, aquifer = simulation_control
+        dimension, problem, aquifer, stress_number= simulation_control
         
         # Dimension
         try:
@@ -505,7 +515,10 @@ class sle_io:
                 "Only 'confined' or 'unconfined' are allowed."
             )
         
-        print(f"Simulation with '{dimension}' case, '{aquifer}' aquifer under '{problem}' state")
+        # Stress number
+        self.stress_number = stress_number
+        
+        print(f"Simulation in '{dimension}' case, '{aquifer}' aquifer under '{problem}' state with {stress_number} events")
         
         return self
 
@@ -683,7 +696,8 @@ class sle_io:
             })
 
         return self
-              
+     
+    # Dataframe creators         
     def create_geometry(self, start_coord, element_num, element_spacing):
         """
         Generate grid and element .dat files for groundwater simulation.
@@ -874,16 +888,15 @@ class sle_io:
 
     def create_observation(self):
 
-        rows = []
-        
+    
         # by "observation"
         stress_list = sorted(
             {w["stress"] for w in self.wells
              if w["type"] == "observation"}
         )
-
+              
         for stress_idx in stress_list:
-            
+            rows = []
             # by each "stress"
             obs = [
                 w for w in self.wells
@@ -1094,7 +1107,8 @@ class sle_io:
         # Create output folder if it does not exist
         output_dir = Path(path)
         output_dir.mkdir(parents=True, exist_ok=True)
-
+        
+        self.output_dir = output_dir.resolve()
         # Write files
         for filename, df in required_files.items():
 
@@ -1107,17 +1121,94 @@ class sle_io:
                 header=header
             )
 
-        print(f"Successfully wrote {len(required_files)} files to:")
-        print(output_dir.resolve())
-
         if (output_dir / "SLE.exe").exists():
             print("Ready for forward simulation!")
         else:
             print("SLE.exe not found. Please copy SLE.exe into this folder.")
 
-        return self
+        
+    # Run simulation
+    def run_forward(self, K = None, Ss = None, print_output = False):
+        """
+        Run forward simulation and allow to change initial parameters (K, Ss)
+        Parameters
+        --------------------
+        K: hydraulic conductivity list in material.dat form
+        Ss: Specific storage list in material.dat from
+        """
+        # the forward .dat files must exist before execute SLE.exe
+        
+        folder = self.output_dir
+        forward_required_files = ["grid.dat", 
+                                  "material.dat", 
+                                  "node.dat",
+                                  "element.dat",
+                                  "boundary.dat",
+                                  "bc.dat",
+                                  "obwell.dat",
+                                  "problem.dat",
+                                  "function.dat",
+                                  "simulation.dat",
+                                  "time.dat",
+                                  "sources.dat",
+                                  "SLE.exe"]
+        
+        missing_files = [f for f in forward_required_files if not os.path.exists( self.output_dir)]
+        if missing_files:
+            raise FileNotFoundError(f"missing following files\n" +
+                                    "\n".join(f"  - {file}" for file in missing_files))
+
+        if K is None: 
+            K = self.init_paras[0]
+            
+        if Ss is None:
+            Ss = self.init_paras[1]
+        
+        if self.dimension == 2:
+            self.df_material.columns = ['Kx','Ky','n','Ss','none1','none2']
+            self.df_material.loc[1:self.total_element_num, 'Kx'] = K
+            self.df_material.loc[1:self.total_element_num, 'Ky'] = K
+            self.df_material.loc[1:self.total_element_num, 'Ss'] = Ss
+        
+        elif self.dimension == 3:
+            self.df_material.columns = ['Kx','Ky','Kz','n','Ss','none1','none2']
+            self.df_material.loc[1:self.total_element_num, 'Kx'] = K
+            self.df_material.loc[1:self.total_element_num, 'Ky'] = K
+            self.df_material.loc[1:self.total_element_num, 'Kz'] = K
+            self.df_material.loc[1:self.total_element_num, 'Ss'] = Ss            
+            
+        self.df_material.to_csv(folder/'material.dat', sep="\t", header=False, index=False)
+        
+        # Execute SLE.exe
+        exe = folder / "SLE.exe"
+        p = Popen([exe], 
+                  cwd = folder,
+                  stdout=PIPE, 
+                  stdin=PIPE, 
+                  stderr=PIPE)
+        
+        stdout_data, _ = p.communicate(input='\n'.encode())       
+        
+        if print_output:
+            print(stdout_data.decode("utf-8"))
+            print('-'*40)
+            print('Finish running SLE.exe')
+            
+
+
+# Result
+def read_stress_result(self, path, ):
     
-    def run_forward():
-        pass
+    return
+
+          
+def plot_head_result():
+    """ 
+    Plot observation result from each stress
+    
+    
+    """
+    
+
 
 

@@ -458,6 +458,7 @@ class sle_io:
 
         # empty dict for project
         self.events = {}
+        self.stress_result = {}
         print(f'Project: {self.project_name}')
 
     # Tools
@@ -680,66 +681,6 @@ class sle_io:
             raise ValueError("No matching nodes were found.")
 
         return df
-
-    def add_wells(self, *wells):
-        """
-        Add wells.
-
-        Parameters
-        ----------
-        w1 :
-            (
-                stress,
-                coordinate,
-                name,
-                type,
-                parameter(dict)
-            )
-        wells = (w1, w2,...)    
-        
-        e.g.:
-        inj_1 = (   1,          
-                    ((288.5, 71,  120), )
-                    'inj_1', 
-                    'injection', 
-                    {'rate':const_rate, 'time': inj_time}
-                )
-                
-        mdoel.add_wells(inj_1, inj_2, ...)
-
-        """
-        
-        for w in wells:
-
-            stress, coordinate, name, well_type, parameter = w
-
-            if well_type not in self.WELL_TYPE:
-                raise ValueError(
-                    f"Well type must be {self.WELL_TYPE[:]} for {name}"
-                )                   
-                     
-            df_node = self.select_node(
-                by="coordinate",
-                value = coordinate
-            )
-
-            if df_node.empty:
-                raise ValueError(
-                    f"Cannot find node at {coordinate}"
-                )
-
-            node_id = int(df_node["node_id"].values)
-
-            self.wells.append({
-                "stress": stress,
-                "node_id": node_id,
-                "coordinate": coordinate,
-                "name": name,
-                "type": well_type.lower(),
-                "parameter": parameter
-            })
-
-        return self
      
     # Dataframe creators         
     def create_geometry(self, start_coord, element_num, element_spacing):
@@ -937,7 +878,7 @@ class sle_io:
             
             rows = []
             obs = event["observation"]
-            df_between = pd.DataFrame([[stress_idx], [len(obs)]])
+            df_between = pd.DataFrame([[stress_idx, len(obs)]])
             
             for w in obs:
                 coor, name = w
@@ -1248,10 +1189,54 @@ class sle_io:
             print('Finish running SLE.exe')
             
     # Result
-    def read_stress_result(self, path, ):
-        
-        return
+    def read_stress_FwdObs(self, path, init_h):
+    
+        header = ['loca', 'well', 'time', 'wlevel','flux_x','flux_y','w_content','solute_concentation','solute_flux', '?']
+        df_fwd = pd.read_csv(path, header=None,sep=r'\s+', names = header, engine='python')
 
+        i = 0
+        while i < len(df_fwd):
+            
+            stress_idx = int(df_fwd.iloc[i, 0])
+            n_wells  = int(df_fwd.iloc[i, 1])
+            
+            df = df_fwd.iloc[i+1:i+n_wells+1].reset_index(drop=True)
+            df.drop([0], inplace=True)
+            df_groupby = df.groupby('well')
+            
+            df_head = pd.DataFrame()
+            well_list = sorted(list(df_groupby.groups), key=len)
+
+            # Transient
+            if  self.problem_type == 2:
+
+                for well_name in well_list:     
+                    df_well = df_groupby.get_group(well_name)['wlevel']
+                    df_well.name = well_name
+                    df_well.reset_index(inplace=True, drop=True)
+                    
+                    df_head[well_name] = df_well
+                df_head = df_head.subtract(df_head.iloc[0], axis = 1 )
+
+            # Steady
+            elif self.problem_type == 1:
+
+                for well_name in well_list:   
+                    df_well = df_groupby.get_group(well_name)['wlevel']
+                    df_well.name = well_name
+                    df_well.reset_index(inplace=True, drop=True)
+                    
+                    df_head[well_name] = df_well
+                if init_h:
+                    df_head = df_head.subtract(init_h, axis = 1 )            
+                                
+            
+            self.stress_result[f'stress_{stress_idx}'] =  df_head
+            
+            i += n_wells + 1
+                        
+        return self
+        
     def plot_head_result():
         """ 
         Plot observation result from each stress

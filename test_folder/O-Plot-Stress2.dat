@@ -95951,7 +95951,21 @@ zone T="  0.000000E+00" n= 50050, e= 45900, f=fepoint, et=brick,solutiontime=  0
    48067   48068   49993   49992   48122   48123   50048   50047
    48068   48069   49994   49993   48123   48124   50049   50048
    48069   48070   49995   49994   48124   48125   50050   50049
-GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=       88.5000 Y=      131.0000
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      188.5000 Y=       71.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      188.5000 Y=       71.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=       88.5000 Y=      251.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      188.5000 Y=      311.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      388.5000 Y=      311.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      488.5000 Y=      251.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      488.5000 Y=      131.0000
+        3.8200
+GEOMETRY T=circle C=black CS=GRID LT=0.1 FC=white X=      388.5000 Y=       71.0000
         3.8200
 GEOMETRY T=square C=black CS=GRID LT=0.1 FC=red X=       88.5000 Y=       71.0000
         3.8200

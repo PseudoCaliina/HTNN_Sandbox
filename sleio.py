@@ -17,8 +17,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from subprocess import Popen, PIPE, STDOUT
 
-
-
 # ===== Functions =====
 def element_cor_2d(start_coord, element_spacing):  
     """ 
@@ -458,8 +456,8 @@ class sle_io:
     def __init__(self, project_name):
         self.project_name = project_name
 
-        # empty well database for project
-        self.wells = []
+        # empty dict for project
+        self.events = {}
         print(f'Project: {self.project_name}')
 
     # Tools
@@ -482,8 +480,8 @@ class sle_io:
         stress_number: total pumping/injection event 
         
         """ 
-        if len(simulation_control) != 3:
-            raise ValueError("Error: Tuple simulation control must contain 3 element")        
+        if len(simulation_control) != 4:
+            raise ValueError("Error: Tuple simulation control must contain 4 element")        
 
         # Unpack tuple
         dimension, problem, aquifer, stress_number= simulation_control
@@ -519,6 +517,51 @@ class sle_io:
         self.stress_number = stress_number
         
         print(f"Simulation in '{dimension}' case, '{aquifer}' aquifer under '{problem}' state with {stress_number} events")
+        
+        return self
+   
+    def add_stress(self, stress_idx, time, obs, src):
+        """ 
+        Add sources, obwell, time by each stress
+        
+        Parameters (for each added stress)
+        -----------------------------
+        stress_idx: stress idex
+        
+        time: (dt, dt_max, dt_mul, t_max, t_red, t_ops)
+        
+        obs: (obs_1, obs_2, ...)
+            obs_1 = ((x,y), "name", "well_type", "{}")
+        src: (src_1, src_2, ...) 
+
+        
+        e.g. for adding stress contain 2 injection wells, 8 observation wells
+
+            time = (10, 10, 1, 600, 'each_time_step', 0)
+            obs =  (
+                     ((188.5, 71,  130),  "Pie_1",  "observation", {}),
+                     ((88.5,  131, 200),  "Pie_2",  "observation", {}),
+                     ((88.5,  251, 180),  "Pie_3",  "observation", {}),
+                     ((188.5, 311, 150),  "Pie_4",  "observation", {}),
+                     ((388.5, 311, 150),  "Pie_5",  "observation", {}),
+                     ((488.5, 251, 180),  "Pie_6",  "observation", {}),
+                     ((488.5, 131, 200),  "Pie_7",  "observation", {}),
+                     ((388.5, 71,  130),  "Pie_8",  "observation", {}),
+            )
+            src = (
+                    ((288.5, 71,  120), 'inj_1', 'injection', {'rate':const_rate, 'time': inj_time})
+                    ((88.5,  71,  110), 'inj_2', 'injection', {'rate':const_rate, 'time': inj_time})
+            )
+
+        """
+        
+        self.events[stress_idx] = {
+            
+            'time':      time,
+            'observation': obs,
+            'sources':     src,            
+            
+        }
         
         return self
 
@@ -586,6 +629,7 @@ class sle_io:
                     "Example (2D): ((0, 0), (10, 0))\n"
                     "Example (3D): ((0, 0, 0), (10, 0, 5))"
                 )
+            
 
             selected = []
 
@@ -888,105 +932,114 @@ class sle_io:
 
     def create_observation(self):
 
-    
-        # by "observation"
-        stress_list = sorted(
-            {w["stress"] for w in self.wells
-             if w["type"] == "observation"}
-        )
-              
-        for stress_idx in stress_list:
+        obs_list = []
+        for stress_idx, event in sorted(self.events.items()):
+            
             rows = []
-            # by each "stress"
-            obs = [
-                w for w in self.wells
-                if w["stress"] == stress_idx 
-                and w["type"]  == "observation"
-            ]
-
-            rows.append([stress_idx, len(obs)])
-
-            for well in obs:
-                rows.append([
-                    well["node_id"], # node idex       
-                    well["name"]     # well name (observation)
-                ])
-
-            self.df_obwell = pd.DataFrame(rows)
-        
-        return self
-    
-    def create_source(self):
-
-
-        # select by well type
-        stress_list = sorted(
-            {w["stress"] for w in self.wells
-             if w["type"] == "injection"}
-        )
-        
-        df_up = pd.DataFrame([[len(stress_list)], [0]]) # for [total stress number] and [0]
-        
-        src_list = [df_up]
-        # store each stress
-        for stress_idx in stress_list:
-
-            src = [
-                w for w in self.wells
-                if w["stress"] == stress_idx and  w["type"] == "injection"
-            ]
-
-            rows = []
-            df_between = pd.DataFrame([len(src)])
-
-            for well in src:
-
-                rows.append([
-                    well["node_id"],              # node idex
-                    well["parameter"]["rate"],    # sink/source for flow
-                    0,                            # sink/source for concentration
-                    well["parameter"]["time"][0], # start time
-                    well["parameter"]["time"][1], # end time
-                    0,                            # start time for concentration
-                    0,                            # end time for concentration
-                    well["name"],                 # well name
-                ])
+            obs = event["observation"]
+            df_between = pd.DataFrame([[stress_idx], [len(obs)]])
+            
+            for w in obs:
+                coor, name = w
                 
-            df = pd.DataFrame(rows)
-            src_list.append(pd.concat([df_between, df]))
-            
-        self.df_source = pd.concat(src_list)
+                
+                df_node = self.select_node(
+                    by="coordinate",
+                    value = (coor,)
+                )
+
+                if df_node.empty:
+                    raise ValueError(
+                        f"Cannot find node at {coor}"
+                    )
+
+                node_id = int(df_node["node_id"].values)   
+                             
+                rows.append([
+                    node_id,
+                    name
+                ])
+
+            df_ = pd.DataFrame(rows)
+            obs_list.append(pd.concat([df_between, df_]))    
+
+        self.df_obwell = pd.concat(obs_list)
         
         return self
-        
-    def create_times(self, *times):
-        """ 
-        Add time.
 
-        Parameters
-        ----------
-        t1 =  (dt, dt_max, dt_multipler, t_max, output_flag, t_reduction)
+    def create_source(self):
         
-        """
-        t_list = []
-        for t_ in times:
-            dt, dt_max, dt_m, t_max, flag, t_re = t_
+        
+        df_up = pd.DataFrame([[len(sorted(self.events))], [0]])
+        src_list = [df_up]
+        
+        for _, event in sorted(self.events.items()): 
             
-            if flag not in self.OUTPUT_MAP:
-                raise ValueError(f'output map for time: {self.OUTPUT_MAP}' 
-                                 f'select the corresponding type of flag')
+            rows = []
+            srcs = event['sources']
+            df_between = pd.DataFrame([len(srcs)])
             
-            t_list.append([
-                dt, 
-                dt_max, 
-                dt_m,
-                t_max,
-                self.OUTPUT_MAP[flag],
-                t_re
-            ])
+            for src in srcs:
+                
+                coor, name, paras = src
+                
+                df_node = self.select_node(
+                    by="coordinate",
+                    value = (coor,)
+                )
+
+                if df_node.empty:
+                    raise ValueError(
+                        f"Cannot find node at {coor}"
+                    )
+
+                node_id = int(df_node["node_id"].values)
+                    
+                rows.append([
+                    node_id,              # node index
+                    paras["rate"],        # sink/source for flow
+                    0,                    # sink/source for concentration
+                    paras["time"][0],     # start time
+                    paras["time"][1],     # end time
+                    0,                    # start time for concentration
+                    0,                    # end time for concentration
+                    name,                 # well name
+                ])
+
+            df_ = pd.DataFrame(rows)
+            src_list.append(pd.concat([df_between, df_]))    
         
+        self.df_source = pd.concat(src_list)
+            
+    
         
-        self.df_time =  pd.DataFrame(t_list).T   
+        return self
+
+    def create_times(self):
+        
+        time_list = []
+        
+        for _, event in sorted(self.events.items()):
+            
+            t = event['time']
+            dt, dt_max, dt_mul, t_max, max_red, flag = t
+            
+            try:
+                self.OUTPUT_MAP[flag]
+                
+            except KeyError:
+                raise ValueError(
+                    f"Invalid output flag: '{flag}'. "
+                    "Only 'integer_time' or 'each_time_step' two output options."
+                )
+            
+            
+            df_ = pd.DataFrame([dt, dt_max, dt_mul, t_max, max_red])  
+              
+            time_list.append(df_)
+
+        
+        self.df_time = pd.concat(time_list, axis=1)
         
         return self
 
@@ -1194,21 +1247,18 @@ class sle_io:
             print('-'*40)
             print('Finish running SLE.exe')
             
+    # Result
+    def read_stress_result(self, path, ):
+        
+        return
 
-
-# Result
-def read_stress_result(self, path, ):
-    
-    return
-
-          
-def plot_head_result():
-    """ 
-    Plot observation result from each stress
-    
-    
-    """
-    
+    def plot_head_result():
+        """ 
+        Plot observation result from each stress
+        
+        
+        """
+        
 
 
 

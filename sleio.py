@@ -453,13 +453,15 @@ class sle_io:
         'each_time_step': 0,
     }
         
-    def __init__(self, project_name):
+    def __init__(self, project_name, path):
         self.project_name = project_name
+        self.work_dir = Path(path).resolve()
 
         # empty dict for project
         self.events = {}
         self.stress_result = {}
         print(f'Project: {self.project_name}')
+        print(f'Work on folder:{self.work_dir}')
 
     # Tools
     def set_parameters(self, simulation_control):
@@ -975,7 +977,7 @@ class sle_io:
                 )
             
             
-            df_ = pd.DataFrame([dt, dt_max, dt_mul, t_max, max_red])  
+            df_ = pd.DataFrame([dt, dt_max, dt_mul, t_max, max_red, self.OUTPUT_MAP[flag]])  
               
             time_list.append(df_)
 
@@ -1057,33 +1059,36 @@ class sle_io:
                 d["coordinate_system"],
                 d["head_type"],
         ]]).T
+        
+        self.df_problem.columns = ['FORWARD']
 
         return self
         
-    def write_forward_input(self, path):
+    def write_forward_input(self):
         """
         Write all required input files for forward simulation.
 
         Parameters
         ----------
         path : str or Path
-            Output folder for SLE input files.
+            Output path for SLE input files.
+            if no new path given, then Output path = work_dir
         """
 
         # All required DataFrames
         required_files = {
-            "grid.dat":     self.df_grid,
-            "node.dat":     self.df_node,
-            "element.dat":  self.df_element,
-            "bc.dat":       self.df_bc,
-            "boundary.dat": self.df_boundary,
-            "sources.dat":  self.df_source,
-            "material.dat": self.df_material,
-            "obwell.dat":   self.df_obwell,
-            "function.dat": self.df_function,
-            "time.dat":     self.df_time,
-            "problem.dat":  self.df_problem,
-            "simulation.dat": self.df_simulation,
+            "grid.dat":         self.df_grid,
+            "node.dat":         self.df_node,
+            "element.dat":      self.df_element,
+            "bc.dat":           self.df_bc,
+            "boundary.dat":     self.df_boundary,
+            "sources.dat":      self.df_source,
+            "material.dat":     self.df_material,
+            "obwell.dat":       self.df_obwell,
+            "function.dat":     self.df_function,
+            "time.dat":         self.df_time,
+            "problem.dat":      self.df_problem,
+            "simulation.dat":   self.df_simulation,
         }
 
         # Check missing DataFrames
@@ -1098,31 +1103,31 @@ class sle_io:
                 + "\n".join(f"  - {name}" for name in missing)
             )
 
-        # Create output folder if it does not exist
-        output_dir = Path(path)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # files will be create in work_dir
+        self.output_dir = self.work_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)   
         
-        self.output_dir = output_dir.resolve()
+        
         # Write files
         for filename, df in required_files.items():
-
+            
             header = filename == "problem.dat"
-
+            
             df.to_csv(
-                output_dir / filename,
+                self.work_dir / filename,
                 sep="\t",
                 index=False,
-                header=header
+                header = header
             )
 
-        if (output_dir / "SLE.exe").exists():
+        if (self.work_dir / "SLE.exe").exists():
             print("Ready for forward simulation!")
         else:
             print("SLE.exe not found. Please copy SLE.exe into this folder.")
 
         
     # Run simulation
-    def run_forward(self, K = None, Ss = None, print_output = False):
+    def run_forward(self, K = None, Ss = None, path = None, dimension = None, print_output = False):
         """
         Run forward simulation and allow to change initial parameters (K, Ss)
         Parameters
@@ -1132,7 +1137,6 @@ class sle_io:
         """
         # the forward .dat files must exist before execute SLE.exe
         
-        folder = self.output_dir
         forward_required_files = ["grid.dat", 
                                   "material.dat", 
                                   "node.dat",
@@ -1147,7 +1151,12 @@ class sle_io:
                                   "sources.dat",
                                   "SLE.exe"]
         
-        missing_files = [f for f in forward_required_files if not os.path.exists( self.output_dir)]
+        # Let user allow to used run_forward if object is not create
+        if path:
+            work_dir = path
+        work_dir = self.work_dir  
+        
+        missing_files = [f for f in forward_required_files if not os.path.exists( work_dir )]
         if missing_files:
             raise FileNotFoundError(f"missing following files\n" +
                                     "\n".join(f"  - {file}" for file in missing_files))
@@ -1158,25 +1167,34 @@ class sle_io:
         if Ss is None:
             Ss = self.init_paras[1]
         
+   
+        # df_material = pd.read_csv(
+        #     f"{work_dir}/material.dat",
+        #     sep="\t",
+        #     header=None,
+        #     engine="python"
+        #)
+        # total_element_num = int(df_material.iloc[0, 0])    
+        
+        
         if self.dimension == 2:
             self.df_material.columns = ['Kx','Ky','n','Ss','none1','none2']
             self.df_material.loc[1:self.total_element_num, 'Kx'] = K
             self.df_material.loc[1:self.total_element_num, 'Ky'] = K
             self.df_material.loc[1:self.total_element_num, 'Ss'] = Ss
         
-        elif self.dimension == 3:
+        elif dimension == 3:
             self.df_material.columns = ['Kx','Ky','Kz','n','Ss','none1','none2']
             self.df_material.loc[1:self.total_element_num, 'Kx'] = K
-            self.df_material.loc[1:self.total_element_num, 'Ky'] = K
             self.df_material.loc[1:self.total_element_num, 'Kz'] = K
             self.df_material.loc[1:self.total_element_num, 'Ss'] = Ss            
             
-        self.df_material.to_csv(folder/'material.dat', sep="\t", header=False, index=False)
+        self.df_material.to_csv(work_dir/'material.dat', sep="\t", header=False, index=False)
         
         # Execute SLE.exe
-        exe = folder / "SLE.exe"
+        exe = work_dir / "SLE.exe"
         p = Popen([exe], 
-                  cwd = folder,
+                  cwd = work_dir,
                   stdout=PIPE, 
                   stdin=PIPE, 
                   stderr=PIPE)
@@ -1188,11 +1206,15 @@ class sle_io:
             print('-'*40)
             print('Finish running SLE.exe')
             
-    # Result
-    def read_stress_FwdObs(self, path, init_h):
-    
+    # Result 
+    def read_stress_FwdObs(self, path = None, init_h = None):
+        
+        if path:
+            work_dir = path
+        work_dir = self.work_dir
+            
         header = ['loca', 'well', 'time', 'wlevel','flux_x','flux_y','w_content','solute_concentation','solute_flux', '?']
-        df_fwd = pd.read_csv(path, header=None,sep=r'\s+', names = header, engine='python')
+        df_fwd = pd.read_csv(work_dir/"O-FwdObs.dat", header=None,sep=r'\s+', names = header, engine='python')
 
         i = 0
         while i < len(df_fwd):
@@ -1201,6 +1223,12 @@ class sle_io:
             n_wells  = int(df_fwd.iloc[i, 1])
             
             df = df_fwd.iloc[i+1:i+n_wells+1].reset_index(drop=True)
+            
+            # Prevent event has no simulation result 
+            if df.empty:
+                i += n_wells + 1
+                continue
+            
             df.drop([0], inplace=True)
             df_groupby = df.groupby('well')
             
@@ -1243,6 +1271,8 @@ class sle_io:
         
         
         """
+        
+        return None
         
 
 

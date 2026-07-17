@@ -3,6 +3,9 @@ test.py
 model.pptx
 .venv
 inverse
+forward
 test_folder
+test_forward
 r_HT_NN
 r_SLE_files
+SLE.exe

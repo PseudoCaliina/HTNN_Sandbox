@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-- This python file provide users to access more easily 
-  to simulate groundwater flow using 'VSAFT2 SOLVER'
+- This python code provide user to access more easily 
+  to simulate groundwater flow using 'VSAFT3 SOLVER'
 
--  The version now only support "2D" and "3D" "Steady" state 
+- The version now only support "2D" and "3D" state 
    groundwater flow simulation in " Rectangular Boundary "
 
 Author: PseudoCaliina
@@ -292,6 +292,15 @@ def create_material_format_3d(K, Ss, n, ele_num, Kh_paras, Se_paras, Trans_paras
     
     return df
    
+def run_forward_from_folder():
+    """ 
+    This function run the code when all .dat files is already exist and well_prepared
+    In order to avoid recreation of the simulation object whenever a new case need to run VSAFT3 forward
+    """
+    
+
+    pass
+
 def rf_generation():
     """ 
     Allow user to generate random field based on the geometry and geostatistics
@@ -335,7 +344,7 @@ def plot_simulation_head():
 # ===== Class =====
 class sle_io:
     """
-    --- Vsaft2 Solver Forward Simulation Input Files ---
+    --- Vsaft3 Solver Forward Simulation Input Files ---
     grid.dat     
     element.dat  
     node.dat     
@@ -402,7 +411,7 @@ class sle_io:
         "max_iteration": 100,           # Maximum nonlinear iterations
         "flow_weight": 0.5,             # Time weighting factor for flow
         "transport_weight": 0.5,        # Time weighting factor for transport
-        "head_tolerance": 1e-3,         # Pressure head convergence tolerance
+        "head_tolerance": 1e-6,         # Pressure head convergence tolerance
         "flow_tolerance": 1e-9,         # Flow convergence tolerance
         "velocity_tolerance": 1e-9,     # Velocity convergence tolerance
         "transport_tolerance": 1e-9,    # Transport convergence tolerance
@@ -475,19 +484,17 @@ class sle_io:
             dimension,
             problem_type,
             aquifer_type,
-            stress_number
         )
         dimension: "2D" or "3D"
         problem_type: "steady" or "transient"
         aquifer_type: "confined" or "unconfined"
-        stress_number: total pumping/injection event 
         
         """ 
-        if len(simulation_control) != 4:
-            raise ValueError("Error: Tuple simulation control must contain 4 element")        
+        if len(simulation_control) != 3:
+            raise ValueError("Error: Tuple simulation control must contain 3 element (dimension, problem type, aquifer type)")        
 
         # Unpack tuple
-        dimension, problem, aquifer, stress_number= simulation_control
+        dimension, problem, aquifer = simulation_control
         
         # Dimension
         try:
@@ -516,10 +523,7 @@ class sle_io:
                 "Only 'confined' or 'unconfined' are allowed."
             )
         
-        # Stress number
-        self.stress_number = stress_number
-        
-        print(f"Simulation in '{dimension}' case, '{aquifer}' aquifer under '{problem}' state with {stress_number} events")
+        print(f"Simulation in '{dimension}' case, '{aquifer}' aquifer under '{problem}' state")
         
         return self
    
@@ -565,6 +569,9 @@ class sle_io:
             'sources':     src,            
             
         }
+        
+        
+        self.stress_number = len(self.events)
         
         return self
 
@@ -1127,7 +1134,7 @@ class sle_io:
 
         
     # Run simulation
-    def run_forward(self, K = None, Ss = None, path = None, dimension = None, print_output = False):
+    def run_forward(self, K = None, Ss = None, path = None, print_output = False):
         """
         Run forward simulation and allow to change initial parameters (K, Ss)
         Parameters
@@ -1167,15 +1174,6 @@ class sle_io:
         if Ss is None:
             Ss = self.init_paras[1]
         
-   
-        # df_material = pd.read_csv(
-        #     f"{work_dir}/material.dat",
-        #     sep="\t",
-        #     header=None,
-        #     engine="python"
-        #)
-        # total_element_num = int(df_material.iloc[0, 0])    
-        
         
         if self.dimension == 2:
             self.df_material.columns = ['Kx','Ky','n','Ss','none1','none2']
@@ -1183,7 +1181,7 @@ class sle_io:
             self.df_material.loc[1:self.total_element_num, 'Ky'] = K
             self.df_material.loc[1:self.total_element_num, 'Ss'] = Ss
         
-        elif dimension == 3:
+        elif self.dimension == 3:
             self.df_material.columns = ['Kx','Ky','Kz','n','Ss','none1','none2']
             self.df_material.loc[1:self.total_element_num, 'Kx'] = K
             self.df_material.loc[1:self.total_element_num, 'Kz'] = K

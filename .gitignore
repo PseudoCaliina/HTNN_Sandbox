@@ -4,6 +4,7 @@ model.pptx
 .venv
 inverse
 forward
+material
 test_folder
 test_forward
 r_HT_NN

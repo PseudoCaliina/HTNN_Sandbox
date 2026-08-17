@@ -1,9 +1,9 @@
 # HTNN for Sandbox
 
-- project structure 
-    - with N random fields
-    - under M events
-    - training for K times
+## Project configuration
+- with N random fields
+- under M events
+- training for K times
 
 ## Project Structure
 
